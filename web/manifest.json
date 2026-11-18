@@ -1,0 +1,12 @@
+{
+    "name": "BarberSync",
+    "short_name": "BarberSync",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#FFFFFF",
+    "theme_color": "#000000",
+    "description": "BarberSync Enterprise Application.",
+    "orientation": "portrait-primary",
+    "prefer_related_applications": false,
+    "icons": []
+}
