@@ -8,13 +8,14 @@ import '../../../../core/theme/app_typography.dart';
 import '../../domain/entities/game_role.dart';
 import '../cubit/game_cubit.dart';
 import '../cubit/game_state.dart';
+import '../widgets/flip_card_widget.dart';
 
 /// Post-Deal Player Verification Vault ("خزنة التحقق من الهوية").
 ///
 /// Includes:
 /// 1. Live Faction Balance Bar ("المافيا الأحياء" vs "الصالحون الأحياء")
 /// 2. Automatic Win-Condition Banner (Mafia Victory / Citizens Victory) with Instant Rematch CTA
-/// 3. Suspense Search by Player Number (1..N) with safeguard confirmation
+/// 3. Suspense Search by Player Number (1..N) with safeguard confirmation & uncropped 2:3 card modal
 /// 4. Eliminated Players Log & End-of-Game Full Reveal sheet with Instant Rematch CTA
 class VerificationVaultView extends StatefulWidget {
   const VerificationVaultView({
@@ -117,8 +118,16 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
       context: context,
       barrierColor: AppColors.backdropScrim,
       builder: (BuildContext dialogContext) {
+        final Size screenSize = MediaQuery.sizeOf(dialogContext);
+        final double maxCardHeight = screenSize.height * 0.62;
+        final double dialogWidth = (screenSize.width * 0.82).clamp(260.0, 380.0);
+
         return Dialog(
           backgroundColor: AppColors.charcoalCardTier2,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.margin,
+            vertical: AppSpacing.md,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: AppRadius.xlAll,
             side: const BorderSide(
@@ -126,10 +135,10 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
               width: 1.5,
             ),
           ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 360),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.lg),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: SizedBox(
+              width: dialogWidth,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -178,48 +187,16 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
                     ],
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  AspectRatio(
-                    aspectRatio: 0.88,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: AppColors.obsidianCanvas,
-                        borderRadius: AppRadius.lgAll,
-                        border: Border.all(
-                          color: factionColor.withValues(alpha: 0.75),
-                          width: AppElevation.borderWidth,
-                        ),
-                        boxShadow: const [AppElevation.activeCardGlow],
+                  // Exact 2:3 Portrait Card Container constrained to 62% screen height
+                  Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: maxCardHeight,
                       ),
-                      clipBehavior: Clip.antiAlias,
-                      child: Image.asset(
-                        role.imagePath,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Center(
-                          child: Text(
-                            role.team.cornerIndex,
-                            style: AppTypography.displayLarge.copyWith(
-                              color: factionColor,
-                            ),
-                          ),
-                        ),
-                      ),
+                      child: RoleCardFace(role: role),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  Text(
-                    role.title,
-                    textAlign: TextAlign.center,
-                    style: AppTypography.headlineLarge,
-                  ),
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    role.description,
-                    textAlign: TextAlign.center,
-                    style: AppTypography.bodyLarge.copyWith(
-                      color: AppColors.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
                   SizedBox(
                     height: 48,
                     child: ElevatedButton.icon(

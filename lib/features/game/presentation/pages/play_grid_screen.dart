@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -14,8 +15,9 @@ import '../widgets/flip_card_widget.dart';
 import 'verification_vault_screen.dart';
 
 /// Play Grid Screen managing sequential player-to-card role distribution,
-/// unnumbered intuitive 3D card picking, single-card lock enforcement,
-/// pass-the-phone privacy shield, and transition to the Verification Vault.
+/// unnumbered intuitive 3D card picking (exact 2:3 aspect ratio),
+/// enlarged 3D spotlight card reveal overlay, pass-the-phone privacy shield,
+/// and transition to the Verification Vault.
 class PlayGridScreen extends StatefulWidget {
   const PlayGridScreen({super.key});
 
@@ -154,7 +156,7 @@ class _PlayGridScreenState extends State<PlayGridScreen> {
                     ],
                   ),
 
-                  // Active Revealed Role Dossier Modal Overlay
+                  // Enlarged 2:3 Spotlight Revealed Role Overlay with 8px backdrop blur
                   if (state.revealedCard != null)
                     _RevealedRoleOverlay(
                       card: state.revealedCard!,
@@ -339,7 +341,7 @@ class _CardsGridContent extends StatelessWidget {
               crossAxisCount: 3,
               mainAxisSpacing: AppSpacing.gutter,
               crossAxisSpacing: AppSpacing.gutter,
-              childAspectRatio: 0.72,
+              childAspectRatio: FlipCardWidget.cardAspectRatio, // Exact 2 / 3
             ),
             itemCount: state.cards.length,
             itemBuilder: (BuildContext context, int index) {
@@ -362,6 +364,8 @@ class _CardsGridContent extends StatelessWidget {
   }
 }
 
+/// Centered, large 2:3 spotlight overlay above a blurred dark backdrop.
+/// Guarantees 100% visibility of the role card's title and bottom description.
 class _RevealedRoleOverlay extends StatelessWidget {
   const _RevealedRoleOverlay({
     required this.card,
@@ -375,124 +379,101 @@ class _RevealedRoleOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Size screenSize = MediaQuery.sizeOf(context);
+    final double spotlightWidth = (screenSize.width * 0.78).clamp(240.0, 360.0);
+    final double maxCardHeight = screenSize.height * 0.62;
+
     final GameRole role = card.role;
     final bool isMafia = role.team == RoleTeam.mafia;
     final Color factionColor =
         isMafia ? AppColors.syndicateCrimson : AppColors.citizensTeam;
 
-    return ColoredBox(
-      color: AppColors.backdropScrim,
-      child: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(AppSpacing.margin),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 360),
-            child: Container(
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              decoration: BoxDecoration(
-                color: AppColors.charcoalCardTier2,
-                borderRadius: AppRadius.xlAll,
-                border: Border.all(
-                  color: AppColors.syndicateCrimson,
-                  width: 1.5,
-                ),
-                boxShadow: const [AppElevation.activeCardGlow],
-              ),
+    return BackdropFilter(
+      filter: ImageFilter.blur(
+        sigmaX: AppElevation.backdropBlurSigma,
+        sigmaY: AppElevation.backdropBlurSigma,
+      ),
+      child: ColoredBox(
+        color: AppColors.backdropScrim,
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.margin,
+              vertical: AppSpacing.md,
+            ),
+            child: SizedBox(
+              width: spotlightWidth,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.sm,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: factionColor.withValues(alpha: 0.15),
-                          borderRadius: AppRadius.baseAll,
-                          border: Border.all(color: factionColor),
-                        ),
-                        child: Text(
-                          '${role.team.cornerIndex} ${role.team.suitSymbol}  ${role.team.arabicLabel}',
-                          style: AppTypography.labelMedium.copyWith(
-                            color: factionColor,
-                            fontWeight: FontWeight.w700,
+                  // Top header pill: Faction & Sequential Player Number
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                      vertical: AppSpacing.sm,
+                    ),
+                    decoration: AppElevation.tier2RaisedPanel(
+                      radius: AppRadius.base,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.sm,
+                            vertical: 2,
                           ),
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.sm,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.crimsonOverlay,
-                          borderRadius: AppRadius.baseAll,
-                          border: Border.all(
-                            color: AppColors.syndicateCrimson,
+                          decoration: BoxDecoration(
+                            color: factionColor.withValues(alpha: 0.15),
+                            borderRadius: AppRadius.smAll,
+                            border: Border.all(color: factionColor),
                           ),
-                        ),
-                        child: Text(
-                          'رقمك في الجولة: #$playerNumber',
-                          style: AppTypography.labelMedium.copyWith(
-                            color: AppColors.pureWhite,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  AspectRatio(
-                    aspectRatio: 0.85,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: AppColors.obsidianCanvas,
-                        borderRadius: AppRadius.lgAll,
-                        border: Border.all(
-                          color: factionColor.withValues(alpha: 0.7),
-                          width: AppElevation.borderWidth,
-                        ),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: Image.asset(
-                        role.imagePath,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Center(
                           child: Text(
-                            role.team.cornerIndex,
-                            style: AppTypography.displayLarge.copyWith(
+                            '${role.team.cornerIndex} ${role.team.suitSymbol}  ${role.team.arabicLabel}',
+                            style: AppTypography.labelMedium.copyWith(
                               color: factionColor,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),
-                      ),
+                        Text(
+                          'اللاعب رقم #$playerNumber',
+                          style: AppTypography.labelLarge.copyWith(
+                            color: AppColors.pureWhite,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  Text(
-                    role.title,
-                    textAlign: TextAlign.center,
-                    style: AppTypography.headlineLarge,
-                  ),
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    role.description,
-                    textAlign: TextAlign.center,
-                    style: AppTypography.bodyLarge.copyWith(
-                      color: AppColors.onSurface,
+
+                  // Large 2:3 3D-Flipped Role Card Artwork (zero cropping)
+                  Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: spotlightWidth,
+                        maxHeight: maxCardHeight,
+                      ),
+                      child: SpotlightRoleFlipCard(
+                        role: role,
+                        onTap: onClaimAndHide,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.lg),
+
+                  const SizedBox(height: AppSpacing.md),
+
+                  // Primary Crimson CTA directly below the 2:3 spotlight card
                   SizedBox(
                     height: 52,
                     child: ElevatedButton.icon(
                       onPressed: onClaimAndHide,
-                      icon: const Icon(Icons.visibility_off_outlined, size: 20),
-                      label: const Text('فهمت - اضغط للإخفاء'),
+                      icon: const Icon(
+                        Icons.visibility_off_outlined,
+                        size: 20,
+                      ),
+                      label: const Text('فهمت — اضغط للإخفاء'),
                     ),
                   ),
                 ],
