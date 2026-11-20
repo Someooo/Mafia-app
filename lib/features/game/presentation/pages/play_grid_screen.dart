@@ -12,12 +12,13 @@ import '../../domain/entities/playable_card.dart';
 import '../cubit/game_cubit.dart';
 import '../cubit/game_state.dart';
 import '../widgets/flip_card_widget.dart';
+import 'night_moderator_screen.dart';
 import 'verification_vault_screen.dart';
 
 /// Play Grid Screen managing sequential player-to-card role distribution,
 /// unnumbered intuitive 3D card picking (exact 2:3 aspect ratio),
 /// enlarged 3D spotlight card reveal overlay, pass-the-phone privacy shield,
-/// and transition to the Verification Vault.
+/// automated Night-1 Audio & Visual Moderator, and transition to the Verification Vault.
 class PlayGridScreen extends StatefulWidget {
   const PlayGridScreen({super.key});
 
@@ -27,6 +28,7 @@ class PlayGridScreen extends StatefulWidget {
 
 class _PlayGridScreenState extends State<PlayGridScreen> {
   bool _hasPrecached = false;
+  bool _hasCompletedNightModerator = false;
 
   @override
   void didChangeDependencies() {
@@ -95,9 +97,20 @@ class _PlayGridScreenState extends State<PlayGridScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<GameCubit, GameState>(
+    return BlocConsumer<GameCubit, GameState>(
+      listenWhen: (GameState previous, GameState current) =>
+          previous.isAllCardsClaimed && !current.isAllCardsClaimed,
+      listener: (BuildContext context, GameState state) {
+        if (!state.isAllCardsClaimed && _hasCompletedNightModerator) {
+          setState(() {
+            _hasCompletedNightModerator = false;
+          });
+        }
+      },
       builder: (BuildContext context, GameState state) {
         final GameCubit cubit = context.read<GameCubit>();
+        final bool showNightModerator =
+            state.isAllCardsClaimed && !_hasCompletedNightModerator;
 
         return PopScope(
           canPop: false,
@@ -122,31 +135,54 @@ class _PlayGridScreenState extends State<PlayGridScreen> {
                         totalCount: state.totalCards,
                         currentTurnPlayerNumber: state.currentTurnPlayerNumber,
                         isAllClaimed: state.isAllCardsClaimed,
+                        isNightModeratorActive: showNightModerator,
                         onReshufflePressed: () => _confirmReshuffle(context),
                         onBackPressed: () => _confirmExitRound(context),
                       ),
-                      // Top 2px countdown/progress razor gauge
-                      LinearProgressIndicator(
-                        value: state.totalCards == 0
-                            ? 0
-                            : state.remainingCardsCount / state.totalCards,
-                        minHeight: AppSpacing.countdownGaugeHeight,
-                        backgroundColor: AppColors.charcoalCardTier2,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          state.remainingCardsCount <= 2
-                              ? AppColors.syndicateCrimson
-                              : AppColors.mutedSlateSilver,
+                      // Top 2px countdown/progress razor gauge (hidden while NightModerator renders its own gauge)
+                      if (!showNightModerator)
+                        LinearProgressIndicator(
+                          value: state.totalCards == 0
+                              ? 0
+                              : state.remainingCardsCount / state.totalCards,
+                          minHeight: AppSpacing.countdownGaugeHeight,
+                          backgroundColor: AppColors.charcoalCardTier2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            state.remainingCardsCount <= 2
+                                ? AppColors.syndicateCrimson
+                                : AppColors.mutedSlateSilver,
+                          ),
                         ),
-                      ),
                       Expanded(
                         child: state.isAllCardsClaimed
-                            ? VerificationVaultView(
-                                onInstantRematch: cubit.startInstantRematch,
-                                onReturnToSetup: () =>
-                                    _confirmExitRound(context),
-                                onReturnHome: () => Navigator.of(context)
-                                    .popUntil((Route<dynamic> r) => r.isFirst),
-                              )
+                            ? (showNightModerator
+                                ? NightModeratorScreen(
+                                    onCompleted: () {
+                                      if (mounted) {
+                                        setState(() {
+                                          _hasCompletedNightModerator = true;
+                                        });
+                                      }
+                                    },
+                                  )
+                                : VerificationVaultView(
+                                    onInstantRematch: () {
+                                      setState(() {
+                                        _hasCompletedNightModerator = false;
+                                      });
+                                      cubit.startInstantRematch();
+                                    },
+                                    onReplayNightModerator: () {
+                                      setState(() {
+                                        _hasCompletedNightModerator = false;
+                                      });
+                                    },
+                                    onReturnToSetup: () =>
+                                        _confirmExitRound(context),
+                                    onReturnHome: () => Navigator.of(context)
+                                        .popUntil(
+                                            (Route<dynamic> r) => r.isFirst),
+                                  ))
                             : _CardsGridContent(
                                 state: state,
                                 onCardTapHidden: cubit.revealCard,
@@ -187,6 +223,7 @@ class _PlayGridHeader extends StatelessWidget {
     required this.totalCount,
     required this.currentTurnPlayerNumber,
     required this.isAllClaimed,
+    this.isNightModeratorActive = false,
     required this.onReshufflePressed,
     required this.onBackPressed,
   });
@@ -195,11 +232,24 @@ class _PlayGridHeader extends StatelessWidget {
   final int totalCount;
   final int currentTurnPlayerNumber;
   final bool isAllClaimed;
+  final bool isNightModeratorActive;
   final VoidCallback onReshufflePressed;
   final VoidCallback onBackPressed;
 
   @override
   Widget build(BuildContext context) {
+    final String headerTitle = isNightModeratorActive
+        ? 'الليدر الآلي — الليلة الأولى'
+        : (isAllClaimed
+            ? 'خزنة التحقق من الهوية'
+            : 'البطاقات المتبقية: $remainingCount من $totalCount');
+
+    final String headerSubtitle = isNightModeratorActive
+        ? 'توجيه صوتي وبصري آلي لتعارف المافيا في الليلة الأولى'
+        : (isAllClaimed
+            ? 'جميع البطاقات موزعة ومربوطة بأرقام اللاعبين'
+            : 'دور اللاعب رقم $currentTurnPlayerNumber • اختر بطاقة عشوائياً');
+
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.margin,
@@ -219,17 +269,13 @@ class _PlayGridHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isAllClaimed
-                      ? 'خزنة التحقق من الهوية'
-                      : 'البطاقات المتبقية: $remainingCount من $totalCount',
+                  headerTitle,
                   style: AppTypography.headlineSmall,
                 ),
                 Text(
-                  isAllClaimed
-                      ? 'جميع البطاقات موزعة ومربوطة بأرقام اللاعبين'
-                      : 'دور اللاعب رقم $currentTurnPlayerNumber • اختر بطاقة عشوائياً',
+                  headerSubtitle,
                   style: AppTypography.labelSmall.copyWith(
-                    color: isAllClaimed
+                    color: isAllClaimed && !isNightModeratorActive
                         ? AppColors.mutedSlateSilver
                         : AppColors.syndicateCrimson,
                   ),

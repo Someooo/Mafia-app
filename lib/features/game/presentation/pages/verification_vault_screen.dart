@@ -9,6 +9,45 @@ import '../../domain/entities/game_role.dart';
 import '../cubit/game_cubit.dart';
 import '../cubit/game_state.dart';
 import '../widgets/flip_card_widget.dart';
+import 'night_moderator_screen.dart';
+
+/// Standalone Scaffold wrapper for the Post-Deal Player Verification Vault.
+class VerificationVaultScreen extends StatelessWidget {
+  const VerificationVaultScreen({
+    super.key,
+    this.onInstantRematch,
+    this.onReplayNightModerator,
+    this.onReturnToSetup,
+    this.onReturnHome,
+  });
+
+  final VoidCallback? onInstantRematch;
+  final VoidCallback? onReplayNightModerator;
+  final VoidCallback? onReturnToSetup;
+  final VoidCallback? onReturnHome;
+
+  @override
+  Widget build(BuildContext context) {
+    final GameCubit cubit = context.read<GameCubit>();
+    return Scaffold(
+      backgroundColor: AppColors.obsidianCanvas,
+      appBar: AppBar(
+        title: const Text('خزنة التحقق من الهوية'),
+      ),
+      body: SafeArea(
+        child: VerificationVaultView(
+          onInstantRematch: onInstantRematch ?? cubit.startInstantRematch,
+          onReplayNightModerator: onReplayNightModerator,
+          onReturnToSetup:
+              onReturnToSetup ?? () => Navigator.of(context).maybePop(),
+          onReturnHome: onReturnHome ??
+              () => Navigator.of(context)
+                  .popUntil((Route<dynamic> r) => r.isFirst),
+        ),
+      ),
+    );
+  }
+}
 
 /// Post-Deal Player Verification Vault ("خزنة التحقق من الهوية").
 ///
@@ -16,18 +55,20 @@ import '../widgets/flip_card_widget.dart';
 /// 1. Live Faction Balance Bar ("المافيا الأحياء" vs "الصالحون الأحياء")
 /// 2. Automatic Win-Condition Banner (Mafia Victory / Citizens Victory) with Instant Rematch CTA
 /// 3. Suspense Search by Player Number (1..N) with safeguard confirmation & uncropped 2:3 card modal
-/// 4. Eliminated Players Log & End-of-Game Full Reveal sheet with Instant Rematch CTA
+/// 4. Eliminated Players Log, "إعادة الليدر الآلي" button, & End-of-Game Full Reveal sheet with Instant Rematch CTA
 class VerificationVaultView extends StatefulWidget {
   const VerificationVaultView({
     super.key,
     required this.onInstantRematch,
     required this.onReturnToSetup,
     required this.onReturnHome,
+    this.onReplayNightModerator,
   });
 
   final VoidCallback onInstantRematch;
   final VoidCallback onReturnToSetup;
   final VoidCallback onReturnHome;
+  final VoidCallback? onReplayNightModerator;
 
   @override
   State<VerificationVaultView> createState() => _VerificationVaultViewState();
@@ -663,7 +704,34 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
 
                   const SizedBox(height: AppSpacing.lg),
 
-                  // 5. End-of-Game Full Reveal & Instant Rematch Controls
+                  // 5. Night Moderator Replay, End-of-Game Full Reveal & Instant Rematch Controls
+                  SizedBox(
+                    height: 50,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        if (widget.onReplayNightModerator != null) {
+                          widget.onReplayNightModerator!();
+                        } else {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const Scaffold(
+                                backgroundColor: AppColors.obsidianCanvas,
+                                body: SafeArea(
+                                  child: NightModeratorScreen(),
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(
+                        Icons.record_voice_over_outlined,
+                        size: 20,
+                      ),
+                      label: const Text('إعادة الليدر الآلي'),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm + AppSpacing.xs),
                   SizedBox(
                     height: 50,
                     child: OutlinedButton.icon(

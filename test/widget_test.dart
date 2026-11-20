@@ -45,6 +45,14 @@ void main() {
       expect(find.text('عدد اللاعبين'), findsOneWidget);
       expect(find.text('الأدوار الإجبارية'), findsOneWidget);
       expect(find.text('توزيع البطاقات'), findsOneWidget);
+
+      // Navigate to PlayGridScreen via "توزيع البطاقات"
+      await tester.tap(find.text('توزيع البطاقات'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('دور اللاعب رقم 1'), findsOneWidget);
+      expect(find.text('البطاقات المتبقية: 6 من 6'), findsOneWidget);
     },
   );
 }

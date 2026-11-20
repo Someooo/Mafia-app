@@ -35,7 +35,7 @@ enum RoleTeam {
   }
 }
 
-/// Centralized asset paths matching the exact files in `assets/images/`.
+/// Centralized asset paths matching the exact files in `assets/images/` and `assets/audio/`.
 abstract final class GameAssets {
   static const String logo = 'assets/images/لوقو النيتف سبلاش.jpg';
   static const String cardBack = 'assets/images/ظهر البطاقه.png';
@@ -48,6 +48,17 @@ abstract final class GameAssets {
   static const String avengerVillager = 'assets/images/ولد الصالحين.jpg';
   static const String sniper = 'assets/images/قناص الصالحين.jpg';
   static const String regularCitizen = 'assets/images/مواطن صالح.jpg';
+
+  // Night-1 Moderator Audio Assets (relative to `assets/` for AudioPlayer AssetSource, and full paths)
+  static const String nightSleepAudioSource = 'audio/night_sleep.mp3';
+  static const String mafiaWakeAudioSource = 'audio/mafia_wake.mp3';
+  static const String mafiaSleepAudioSource = 'audio/mafia_sleep.mp3';
+  static const String cityWakeAudioSource = 'audio/city_wake.mp3';
+
+  static const String nightSleepAudio = 'assets/audio/night_sleep.mp3';
+  static const String mafiaWakeAudio = 'assets/audio/mafia_wake.mp3';
+  static const String mafiaSleepAudio = 'assets/audio/mafia_sleep.mp3';
+  static const String cityWakeAudio = 'assets/audio/city_wake.mp3';
 
   /// All card and branding image paths to pre-cache into Flutter's ImageCache.
   static const List<String> allCardAndBrandAssets = [

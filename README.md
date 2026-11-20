@@ -40,6 +40,10 @@ Engineered as a **single-device Pass-and-Play dealer**, the application mathemat
 - **Tactile Haptics & Accidental Exit Guard:**
   - Distinct haptic impulses (`HapticFeedback.lightImpact`, `mediumImpact`, `heavyImpact`) on counter adjustments, card flips, claims, and reshuffles.
   - Hardware back-navigation guard (`PopScope`) during active deals to prevent accidental round loss.
+- **Automated Night-1 Audio & Visual Moderator (`NightModeratorScreen`):**
+  - Automatically launches after the final card is claimed, guiding the table through the 4 Night-1 phases (`everyoneSleep` 15s, `mafiaWake` 12s with pulsing crimson aura, `mafiaSleep` 5s, `everyoneWake` 3s) with offline MP3 voiceovers (`assets/audio/*.mp3`) and controls for **إعادة الصوت**, **إعادة الليلة من البداية**, and **تخطي**.
+- **Post-Deal Verification Vault & Live Faction Balance (`VerificationVaultScreen`):**
+  - Tracks live surviving counts (`المافيا الأحياء` vs `الصالحون الأحياء`), detects automatic win conditions (`isMafiaVictory` / `isCitizensVictory`), verifies eliminated players by player number (`1..N`), and supports **جولة جديدة (إعادة خلط فورية)** instant rematches.
 - **Offline Settings Persistence (`SharedPreferences`):** Automatically saves and restores the group's preferred `playerCount` and enabled optional roles across sessions with serialized FIFO write safety.
 
 ---
@@ -88,9 +92,10 @@ MafiaApp/
 │       ├── proguard-rules.pro            # Release ProGuard rules
 │       └── src/main/AndroidManifest.xml  # Arabic app label ("مافيا") & portrait orientation lock
 ├── assets/
-│   └── images/                           # Role portraits, card back, and splash logo
+│   ├── audio/                            # Night-1 moderator voiceover MP3s (night_sleep, mafia_wake, mafia_sleep, city_wake)
+│   └── images/                           # 2:3 Role portraits, card back, and splash logo
 ├── lib/
-│   ├── main.dart                         # App entry point, portrait lock, RTL builder & BlocProvider
+│   ├── main.dart                         # App entry point, FlutterNativeSplash, portrait lock, RTL builder & BlocProvider
 │   ├── core/
 │   │   └── theme/
 │   │       ├── app_colors.dart           # Obsidian Syndicate color palette & SyndicateColorsExtension
@@ -109,14 +114,18 @@ MafiaApp/
 │           │       └── role_shuffler.dart      # Cryptographic Fisher-Yates RoleShuffler
 │           └── presentation/
 │               ├── cubit/
-│               │   ├── game_cubit.dart         # Setup & Play Grid state logic + HapticFeedback
-│               │   └── game_state.dart         # Immutable GameState with computed balance getters
+│               │   ├── game_cubit.dart             # Setup, sequential dealing, vault & instant rematch logic
+│               │   ├── game_state.dart             # Immutable GameState with live faction balance & win detection
+│               │   ├── night_moderator_cubit.dart  # Automated 4-phase Night-1 audio & timer state machine
+│               │   └── night_moderator_state.dart  # NightModeratorPhase & NightModeratorState
 │               ├── pages/
-│               │   ├── home_screen.dart        # Noir landing screen & Role Guide trigger
-│               │   ├── setup_screen.dart       # Player counter (6-18) & role toggle dashboard
-│               │   └── play_grid_screen.dart   # 3-column card grid, privacy shield & PopScope guard
+│               │   ├── home_screen.dart                # Noir landing screen & Role Guide trigger
+│               │   ├── setup_screen.dart               # Player counter (6-18) & role toggle dashboard
+│               │   ├── play_grid_screen.dart           # 2:3 card grid, 3D spotlight modal & privacy shield
+│               │   ├── night_moderator_screen.dart     # Automated Night-1 audio & visual moderator
+│               │   └── verification_vault_screen.dart  # Live faction balance bar, player verification & instant rematch
 │               └── widgets/
-│                   ├── flip_card_widget.dart   # 3D Matrix4.rotationY animated card widget
+│                   ├── flip_card_widget.dart   # 3D Matrix4.rotationY animated 2:3 card widget
 │                   └── role_guide_sheet.dart   # Modal bottom sheet showcasing all 8 roles
 ├── test/
 │   ├── widget_test.dart                        # RTL & navigation widget smoke test
@@ -124,7 +133,8 @@ MafiaApp/
 │       ├── domain/
 │       │   └── role_shuffler_test.dart         # Deck size, mandatory roles & variance unit tests
 │       └── presentation/cubit/
-│           └── game_cubit_test.dart            # Anti-cheat locking, reshuffle & persistence tests
+│           ├── game_cubit_test.dart            # Anti-cheat locking, sequential binding, win detection & persistence tests
+│           └── night_moderator_cubit_test.dart # 4-phase Night-1 timer, audio replay, restart & skip unit tests
 ├── PRIVACY_POLICY.md                           # 100% Offline Google Play Store privacy policy
 └── pubspec.yaml                                # Dependencies, assets, launcher icons & native splash
 ```
