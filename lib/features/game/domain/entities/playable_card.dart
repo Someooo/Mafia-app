@@ -7,7 +7,7 @@ enum CardRevealStatus {
   claimed,
 }
 
-/// Represents an individual card instance dealt into the play grid.
+/// Pure-Dart domain entity representing an individual card instance dealt into the play grid.
 class PlayableCard {
   const PlayableCard({
     required this.id,
@@ -48,4 +48,26 @@ class PlayableCard {
           : assignedPlayerNumber as int?,
     );
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    return other is PlayableCard &&
+        other.id == id &&
+        other.index == index &&
+        other.role == role &&
+        other.status == status &&
+        other.assignedPlayerNumber == assignedPlayerNumber;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+        id,
+        index,
+        role,
+        status,
+        assignedPlayerNumber,
+      );
 }

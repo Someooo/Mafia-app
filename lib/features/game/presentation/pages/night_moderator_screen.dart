@@ -9,9 +9,14 @@ import '../cubit/night_moderator_state.dart';
 
 /// Automated Night-1 Audio & Visual Moderator Screen ("الليدر الآلي — الليلة الأولى").
 ///
-/// Enters a manual `NightOnePhase.standby` state after the final card is claimed
-/// so players can place the phone in the center of the table and press
-/// "بدء الليلة الأولى" when everyone is ready.
+/// Performance-engineered:
+/// - The outer [BlocConsumer] only rebuilds when [NightOnePhase] changes (`buildWhen`),
+///   never on 1-second timer ticks.
+/// - The 1-second countdown (`remainingSeconds`) is isolated inside a dedicated
+///   [BlocSelector] widget (`_NightCountdownSecondsText`), preventing rebuilds
+///   of the pulsing aura, Arabic instruction dossier, progress dots, or action buttons.
+/// - Animated pulsing crimson aura and countdown ring are isolated inside
+///   [RepaintBoundary] layers for 60–120 FPS rendering.
 class NightModeratorScreen extends StatelessWidget {
   const NightModeratorScreen({
     super.key,
@@ -92,6 +97,9 @@ class _NightModeratorViewState extends State<_NightModeratorView>
           _handleCompleted();
         }
       },
+      // Rebuild outer tree ONLY when the phase changes, NOT on 1-second timer ticks!
+      buildWhen: (NightModeratorState previous, NightModeratorState current) =>
+          previous.phase != current.phase,
       builder: (BuildContext context, NightModeratorState state) {
         final NightModeratorCubit cubit = context.read<NightModeratorCubit>();
         final NightOnePhase phase = state.phase;
@@ -112,48 +120,41 @@ class _NightModeratorViewState extends State<_NightModeratorView>
         return Stack(
           fit: StackFit.expand,
           children: [
-            // Animated Pulsing Crimson Aura during `mafiaWake`
-            AnimatedBuilder(
-              animation: _pulseAnimation,
-              builder: (BuildContext context, Widget? _) {
-                final double pulseAlpha = isMafiaWake
-                    ? (0.14 + (_pulseAnimation.value * 0.22))
-                    : (isMorning ? 0.12 : 0.04);
+            // Isolated GPU RepaintBoundary for the Pulsing Crimson Aura
+            RepaintBoundary(
+              child: AnimatedBuilder(
+                animation: _pulseAnimation,
+                builder: (BuildContext context, Widget? _) {
+                  final double pulseAlpha = isMafiaWake
+                      ? (0.14 + (_pulseAnimation.value * 0.22))
+                      : (isMorning ? 0.12 : 0.04);
 
-                return IgnorePointer(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: RadialGradient(
-                        center: const Alignment(0, -0.15),
-                        radius: 0.95,
-                        colors: [
-                          (isMafiaWake
-                                  ? AppColors.syndicateCrimson
-                                  : activeAccent)
-                              .withValues(alpha: pulseAlpha),
-                          Colors.transparent,
-                        ],
+                  return IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: RadialGradient(
+                          center: const Alignment(0, -0.15),
+                          radius: 0.95,
+                          colors: [
+                            (isMafiaWake
+                                    ? AppColors.syndicateCrimson
+                                    : activeAccent)
+                                .withValues(alpha: pulseAlpha),
+                            Colors.transparent,
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
 
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Top 2px countdown gauge
-                LinearProgressIndicator(
-                  value: state.phaseProgress,
-                  minHeight: AppSpacing.countdownGaugeHeight,
-                  backgroundColor: AppColors.charcoalCardTier2,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    isMafiaWake
-                        ? AppColors.syndicateCrimson
-                        : AppColors.pureWhite,
-                  ),
-                ),
+                // Isolated Top 2px countdown gauge
+                _NightTopLinearGauge(isMafiaWake: isMafiaWake),
 
                 Expanded(
                   child: SingleChildScrollView(
@@ -233,87 +234,74 @@ class _NightModeratorViewState extends State<_NightModeratorView>
 
                             // Centerpiece Pulsing Countdown Ring & Phase Icon
                             Center(
-                              child: AnimatedBuilder(
-                                animation: _pulseAnimation,
-                                builder: (BuildContext context, Widget? child) {
-                                  final double glowSpread = isMafiaWake
-                                      ? (4.0 + (_pulseAnimation.value * 12.0))
-                                      : 0.0;
-                                  final double glowBlur = isMafiaWake
-                                      ? (16.0 + (_pulseAnimation.value * 16.0))
-                                      : 12.0;
+                              child: RepaintBoundary(
+                                child: AnimatedBuilder(
+                                  animation: _pulseAnimation,
+                                  builder:
+                                      (BuildContext context, Widget? child) {
+                                    final double glowSpread = isMafiaWake
+                                        ? (4.0 + (_pulseAnimation.value * 12.0))
+                                        : 0.0;
+                                    final double glowBlur = isMafiaWake
+                                        ? (16.0 +
+                                            (_pulseAnimation.value * 16.0))
+                                        : 12.0;
 
-                                  return Container(
-                                    width: 168,
-                                    height: 168,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: AppColors.charcoalCardTier2,
-                                      border: Border.all(
-                                        color: isMafiaWake
-                                            ? AppColors.syndicateCrimson
-                                            : AppColors.borderRaised,
-                                        width: isMafiaWake ? 2.0 : 1.0,
+                                    return Container(
+                                      width: 168,
+                                      height: 168,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: AppColors.charcoalCardTier2,
+                                        border: Border.all(
+                                          color: isMafiaWake
+                                              ? AppColors.syndicateCrimson
+                                              : AppColors.borderRaised,
+                                          width: isMafiaWake ? 2.0 : 1.0,
+                                        ),
+                                        boxShadow: isMafiaWake
+                                            ? [
+                                                BoxShadow(
+                                                  color: AppColors.crimsonGlow,
+                                                  blurRadius: glowBlur,
+                                                  spreadRadius: glowSpread,
+                                                ),
+                                              ]
+                                            : null,
                                       ),
-                                      boxShadow: isMafiaWake
-                                          ? [
-                                              BoxShadow(
-                                                color: AppColors.crimsonGlow,
-                                                blurRadius: glowBlur,
-                                                spreadRadius: glowSpread,
-                                              ),
-                                            ]
-                                          : null,
-                                    ),
-                                    child: Stack(
-                                      alignment: Alignment.center,
-                                      children: [
-                                        SizedBox(
-                                          width: 148,
-                                          height: 148,
-                                          child: CircularProgressIndicator(
-                                            value: state.phaseProgress,
-                                            strokeWidth: 4,
-                                            backgroundColor:
-                                                AppColors.charcoalCardTier1,
-                                            valueColor:
-                                                AlwaysStoppedAnimation<Color>(
-                                              isMafiaWake
-                                                  ? AppColors.syndicateCrimson
-                                                  : activeAccent,
-                                            ),
+                                      child: child,
+                                    );
+                                  },
+                                  child: Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      _NightCircularProgressRing(
+                                        isMafiaWake: isMafiaWake,
+                                        activeAccent: activeAccent,
+                                      ),
+                                      Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            _iconForPhase(phase),
+                                            size: 28,
+                                            color: isMafiaWake
+                                                ? AppColors.syndicateCrimson
+                                                : AppColors.pureWhite,
                                           ),
-                                        ),
-                                        Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              _iconForPhase(phase),
-                                              size: 28,
-                                              color: isMafiaWake
-                                                  ? AppColors.syndicateCrimson
-                                                  : AppColors.pureWhite,
-                                            ),
-                                            const SizedBox(
-                                              height: AppSpacing.xs,
-                                            ),
-                                            Text(
-                                              '${state.remainingSeconds}',
-                                              style: AppTypography.displayLarge
-                                                  .copyWith(
-                                                color: AppColors.pureWhite,
-                                              ),
-                                            ),
-                                            Text(
-                                              'ثانية',
-                                              style: AppTypography.labelSmall,
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
+                                          const SizedBox(
+                                            height: AppSpacing.xs,
+                                          ),
+                                          const _NightCountdownSecondsText(),
+                                          Text(
+                                            'ثانية',
+                                            style: AppTypography.labelSmall,
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
 
@@ -461,6 +449,83 @@ class _NightModeratorViewState extends State<_NightModeratorView>
       case NightOnePhase.completed:
         return Icons.wb_sunny_outlined;
     }
+  }
+}
+
+/// Dedicated [BlocSelector] widget for the 1-second countdown text (`remainingSeconds`).
+/// Only this leaf Text widget rebuilds on each second tick.
+class _NightCountdownSecondsText extends StatelessWidget {
+  const _NightCountdownSecondsText();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<NightModeratorCubit, NightModeratorState, int>(
+      selector: (NightModeratorState state) => state.remainingSeconds,
+      builder: (BuildContext context, int remainingSeconds) {
+        return Text(
+          '$remainingSeconds',
+          style: AppTypography.displayLarge.copyWith(
+            color: AppColors.pureWhite,
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Dedicated [BlocSelector] widget for the circular progress ring.
+class _NightCircularProgressRing extends StatelessWidget {
+  const _NightCircularProgressRing({
+    required this.isMafiaWake,
+    required this.activeAccent,
+  });
+
+  final bool isMafiaWake;
+  final Color activeAccent;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<NightModeratorCubit, NightModeratorState, double>(
+      selector: (NightModeratorState state) => state.phaseProgress,
+      builder: (BuildContext context, double phaseProgress) {
+        return SizedBox(
+          width: 148,
+          height: 148,
+          child: CircularProgressIndicator(
+            value: phaseProgress,
+            strokeWidth: 4,
+            backgroundColor: AppColors.charcoalCardTier1,
+            valueColor: AlwaysStoppedAnimation<Color>(
+              isMafiaWake ? AppColors.syndicateCrimson : activeAccent,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Dedicated [BlocSelector] widget for the top 2px progress bar.
+class _NightTopLinearGauge extends StatelessWidget {
+  const _NightTopLinearGauge({required this.isMafiaWake});
+
+  final bool isMafiaWake;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<NightModeratorCubit, NightModeratorState, double>(
+      selector: (NightModeratorState state) => state.phaseProgress,
+      builder: (BuildContext context, double phaseProgress) {
+        return LinearProgressIndicator(
+          value: phaseProgress,
+          minHeight: AppSpacing.countdownGaugeHeight,
+          backgroundColor: AppColors.charcoalCardTier2,
+          valueColor: AlwaysStoppedAnimation<Color>(
+            isMafiaWake ? AppColors.syndicateCrimson : AppColors.pureWhite,
+          ),
+        );
+      },
+    );
   }
 }
 

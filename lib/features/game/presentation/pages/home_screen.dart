@@ -6,6 +6,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_dimensions.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../domain/entities/game_role.dart';
+import '../utils/game_asset_precacher.dart';
 import '../widgets/role_guide_sheet.dart';
 import 'setup_screen.dart';
 
@@ -26,7 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.didChangeDependencies();
     if (!_hasPrecached) {
       _hasPrecached = true;
-      unawaited(GameAssets.precacheAll(context));
+      unawaited(GameAssetPrecacher.precacheAll(context));
     }
   }
 
@@ -137,6 +138,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: Image.asset(
                               GameAssets.logo,
                               fit: BoxFit.cover,
+                              cacheWidth: 420,
+                              filterQuality: FilterQuality.medium,
                               errorBuilder: (_, __, ___) => Container(
                                 color: AppColors.charcoalCardTier1,
                                 child: const Icon(

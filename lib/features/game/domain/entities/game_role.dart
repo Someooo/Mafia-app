@@ -1,6 +1,6 @@
-import 'package:flutter/widgets.dart';
-
 /// Faction alignment in the Obsidian Syndicate universe.
+///
+/// Pure Dart domain entity with zero Flutter or UI dependencies.
 enum RoleTeam {
   mafia,
   citizens;
@@ -36,6 +36,8 @@ enum RoleTeam {
 }
 
 /// Centralized asset paths matching the exact files in `assets/images/` and `assets/audio/`.
+///
+/// Pure Dart constants with zero Flutter dependencies.
 abstract final class GameAssets {
   static const String logo = 'assets/images/لوقو النيتف سبلاش.jpg';
   static const String cardBack = 'assets/images/ظهر البطاقه.png';
@@ -73,21 +75,9 @@ abstract final class GameAssets {
     sniper,
     regularCitizen,
   ];
-
-  /// Pre-caches all role card images and `card_back` to eliminate white flickers
-  /// or frame drops during the 3D flip animation on mid-range devices.
-  static Future<void> precacheAll(BuildContext context) async {
-    for (final String assetPath in allCardAndBrandAssets) {
-      await precacheImage(
-        AssetImage(assetPath),
-        context,
-        onError: (_, __) {},
-      );
-    }
-  }
 }
 
-/// Immutable domain model representing a Mafia role card.
+/// Immutable pure-Dart domain model representing a Mafia role card.
 class GameRole {
   const GameRole({
     required this.id,
@@ -224,4 +214,15 @@ class GameRole {
     }
     return null;
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    return other is GameRole && other.id == id;
+  }
+
+  @override
+  int get hashCode => id.hashCode;
 }

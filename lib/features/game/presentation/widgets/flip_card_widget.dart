@@ -10,6 +10,9 @@ import '../../domain/entities/playable_card.dart';
 
 /// 3D Y-axis rotating role card following the exact 2:3 portrait aspect ratio
 /// of the generated role card artwork (`assets/images/*.jpg`).
+///
+/// Wrapped in a [RepaintBoundary] so 3D perspective transforms stay isolated
+/// on their own compositing layer without repainting sibling cards.
 class FlipCardWidget extends StatefulWidget {
   const FlipCardWidget({
     super.key,
@@ -68,50 +71,53 @@ class _FlipCardWidgetState extends State<FlipCardWidget>
 
   @override
   Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: FlipCardWidget.cardAspectRatio,
-      child: widget.card.isClaimed
-          ? _ClaimedCardSlot(
-              assignedPlayerNumber: widget.card.assignedPlayerNumber,
-            )
-          : AnimatedOpacity(
-              duration: const Duration(milliseconds: 220),
-              opacity: widget.isLockedByAnotherReveal ? 0.32 : 1.0,
-              child: GestureDetector(
-                onTap: () {
-                  if (widget.card.isHidden && !widget.isLockedByAnotherReveal) {
-                    widget.onTapHidden();
-                  } else if (widget.card.isRevealed) {
-                    widget.onTapRevealed();
-                  }
-                },
-                child: AnimatedBuilder(
-                  animation: _flipAnimation,
-                  builder: (BuildContext context, Widget? child) {
-                    final double angle = _flipAnimation.value * math.pi;
-                    final bool showFrontFace = angle > (math.pi / 2);
-
-                    final Matrix4 transform = Matrix4.identity()
-                      ..setEntry(3, 2, 0.0012)
-                      ..rotateY(angle);
-
-                    return Transform(
-                      alignment: Alignment.center,
-                      transform: transform,
-                      child: showFrontFace
-                          ? Transform(
-                              alignment: Alignment.center,
-                              transform: Matrix4.rotationY(math.pi),
-                              child: RoleCardFace(role: widget.card.role),
-                            )
-                          : _CardBackFace(
-                              isLocked: widget.isLockedByAnotherReveal,
-                            ),
-                    );
+    return RepaintBoundary(
+      child: AspectRatio(
+        aspectRatio: FlipCardWidget.cardAspectRatio,
+        child: widget.card.isClaimed
+            ? _ClaimedCardSlot(
+                assignedPlayerNumber: widget.card.assignedPlayerNumber,
+              )
+            : AnimatedOpacity(
+                duration: const Duration(milliseconds: 220),
+                opacity: widget.isLockedByAnotherReveal ? 0.32 : 1.0,
+                child: GestureDetector(
+                  onTap: () {
+                    if (widget.card.isHidden &&
+                        !widget.isLockedByAnotherReveal) {
+                      widget.onTapHidden();
+                    } else if (widget.card.isRevealed) {
+                      widget.onTapRevealed();
+                    }
                   },
+                  child: AnimatedBuilder(
+                    animation: _flipAnimation,
+                    builder: (BuildContext context, Widget? child) {
+                      final double angle = _flipAnimation.value * math.pi;
+                      final bool showFrontFace = angle > (math.pi / 2);
+
+                      final Matrix4 transform = Matrix4.identity()
+                        ..setEntry(3, 2, 0.0012)
+                        ..rotateY(angle);
+
+                      return Transform(
+                        alignment: Alignment.center,
+                        transform: transform,
+                        child: showFrontFace
+                            ? Transform(
+                                alignment: Alignment.center,
+                                transform: Matrix4.rotationY(math.pi),
+                                child: RoleCardFace(role: widget.card.role),
+                              )
+                            : _CardBackFace(
+                                isLocked: widget.isLockedByAnotherReveal,
+                              ),
+                      );
+                    },
+                  ),
                 ),
               ),
-            ),
+      ),
     );
   }
 }
@@ -158,32 +164,40 @@ class _SpotlightRoleFlipCardState extends State<SpotlightRoleFlipCard>
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: widget.onTap,
-      child: AspectRatio(
-        aspectRatio: FlipCardWidget.cardAspectRatio,
-        child: AnimatedBuilder(
-          animation: _flipAnimation,
-          builder: (BuildContext context, Widget? child) {
-            final double angle = _flipAnimation.value * math.pi;
-            final bool showFrontFace = angle > (math.pi / 2);
+    return RepaintBoundary(
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AspectRatio(
+          aspectRatio: FlipCardWidget.cardAspectRatio,
+          child: AnimatedBuilder(
+            animation: _flipAnimation,
+            builder: (BuildContext context, Widget? child) {
+              final double angle = _flipAnimation.value * math.pi;
+              final bool showFrontFace = angle > (math.pi / 2);
 
-            final Matrix4 transform = Matrix4.identity()
-              ..setEntry(3, 2, 0.001)
-              ..rotateY(angle);
+              final Matrix4 transform = Matrix4.identity()
+                ..setEntry(3, 2, 0.001)
+                ..rotateY(angle);
 
-            return Transform(
-              alignment: Alignment.center,
-              transform: transform,
-              child: showFrontFace
-                  ? Transform(
-                      alignment: Alignment.center,
-                      transform: Matrix4.rotationY(math.pi),
-                      child: RoleCardFace(role: widget.role),
-                    )
-                  : const _CardBackFace(isLocked: false),
-            );
-          },
+              return Transform(
+                alignment: Alignment.center,
+                transform: transform,
+                child: showFrontFace
+                    ? Transform(
+                        alignment: Alignment.center,
+                        transform: Matrix4.rotationY(math.pi),
+                        child: RoleCardFace(
+                          role: widget.role,
+                          cacheWidth: 720,
+                        ),
+                      )
+                    : const _CardBackFace(
+                        isLocked: false,
+                        cacheWidth: 720,
+                      ),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -195,9 +209,11 @@ class RoleCardFace extends StatelessWidget {
   const RoleCardFace({
     super.key,
     required this.role,
+    this.cacheWidth = 480,
   });
 
   final GameRole role;
+  final int cacheWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -222,6 +238,8 @@ class RoleCardFace extends StatelessWidget {
           role.imagePath,
           fit: BoxFit.contain,
           alignment: Alignment.center,
+          cacheWidth: cacheWidth,
+          filterQuality: FilterQuality.medium,
           errorBuilder: (_, __, ___) => Container(
             color: AppColors.charcoalCardTier2,
             padding: const EdgeInsets.all(AppSpacing.md),
@@ -258,9 +276,11 @@ class RoleCardFace extends StatelessWidget {
 class _CardBackFace extends StatelessWidget {
   const _CardBackFace({
     required this.isLocked,
+    this.cacheWidth = 360,
   });
 
   final bool isLocked;
+  final int cacheWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -285,6 +305,8 @@ class _CardBackFace extends StatelessWidget {
               GameAssets.cardBack,
               fit: BoxFit.contain,
               alignment: Alignment.center,
+              cacheWidth: cacheWidth,
+              filterQuality: FilterQuality.medium,
               errorBuilder: (_, __, ___) => Container(
                 color: AppColors.charcoalCardTier1,
                 child: const Center(

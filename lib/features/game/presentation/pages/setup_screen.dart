@@ -10,10 +10,14 @@ import '../../domain/entities/game_role.dart';
 import '../../domain/services/role_shuffler.dart';
 import '../cubit/game_cubit.dart';
 import '../cubit/game_state.dart';
+import '../utils/game_asset_precacher.dart';
 import '../widgets/role_guide_sheet.dart';
 import 'play_grid_screen.dart';
 
 /// Game Setup Screen configuring total players (6-18), mandatory roles, and optional roles.
+///
+/// Uses granular [BlocSelector] widgets so counter updates or optional role toggles
+/// never rebuild the static mandatory roles section or unaffected sibling widgets.
 class SetupScreen extends StatefulWidget {
   const SetupScreen({super.key});
 
@@ -29,7 +33,7 @@ class _SetupScreenState extends State<SetupScreen> {
     super.didChangeDependencies();
     if (!_hasPrecached) {
       _hasPrecached = true;
-      unawaited(GameAssets.precacheAll(context));
+      unawaited(GameAssetPrecacher.precacheAll(context));
     }
   }
 
@@ -47,87 +51,173 @@ class _SetupScreenState extends State<SetupScreen> {
           ),
         ],
       ),
-      body: BlocBuilder<GameCubit, GameState>(
-        builder: (BuildContext context, GameState state) {
-          final GameCubit cubit = context.read<GameCubit>();
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.margin,
-                    AppSpacing.md,
-                    AppSpacing.margin,
-                    AppSpacing.xl,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.margin,
+                AppSpacing.md,
+                AppSpacing.margin,
+                AppSpacing.xl,
+              ),
+              children: [
+                const _PlayerCounterSection(),
+                const SizedBox(height: AppSpacing.lg),
+                const _MandatoryRolesSection(),
+                const SizedBox(height: AppSpacing.lg),
+                const _OptionalRolesHeaderSection(),
+                const SizedBox(height: AppSpacing.sm + AppSpacing.xs),
+                ...GameRole.optionalRoles.map(
+                  (GameRole role) => Padding(
+                    key: ValueKey<String>('optional_role_${role.id}'),
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: _OptionalRoleSelectorTile(role: role),
                   ),
-                  children: [
-                    _PlayerCounterPanel(
-                      playerCount: state.playerCount,
-                      canIncrement: state.canIncrementPlayers,
-                      canDecrement: state.canDecrementPlayers,
-                      mafiaCount: state.totalMafiaCount,
-                      citizensCount: state.totalCitizensTeamCount,
-                      onIncrement: cubit.incrementPlayerCount,
-                      onDecrement: cubit.decrementPlayerCount,
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    _SectionHeader(
-                      title: 'الأدوار الإجبارية',
-                      subtitle: '٤ أدوار أساسية ثابتة في كل جولة',
-                      trailingBadge: '${state.mandatoryCount}',
-                    ),
-                    const SizedBox(height: AppSpacing.sm + AppSpacing.xs),
-                    ...GameRole.mandatoryRoles.map(
-                      (GameRole role) => Padding(
-                        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                        child: _MandatoryRoleTile(role: role),
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    _SectionHeader(
-                      title: 'الأدوار الاختيارية',
-                      subtitle: 'فعّل الأدوار الإضافية حسب تكتيك المجموعة',
-                      trailingBadge: '${state.selectedOptionalCount}',
-                    ),
-                    const SizedBox(height: AppSpacing.sm + AppSpacing.xs),
-                    ...GameRole.optionalRoles.map(
-                      (GameRole role) {
-                        final bool isSelected =
-                            state.enabledOptionalRoleIds.contains(role.id);
-                        final bool isEnabled =
-                            state.canToggleOptionalRole(role.id);
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                          child: _OptionalRoleSwitchTile(
-                            role: role,
-                            isSelected: isSelected,
-                            isEnabled: isEnabled,
-                            onToggle: () => cubit.toggleOptionalRole(role.id),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
                 ),
-              ),
-              _StickyDealFooter(
-                remainingCitizenCount: state.remainingCitizenCount,
-                playerCount: state.playerCount,
-                onDealCards: () {
-                  cubit.dealCards();
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const PlayGridScreen(),
-                    ),
-                  );
-                },
-              ),
-            ],
-          );
-        },
+              ],
+            ),
+          ),
+          const _StickyDealFooterSection(),
+        ],
       ),
+    );
+  }
+}
+
+class _PlayerCounterSection extends StatelessWidget {
+  const _PlayerCounterSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<
+        GameCubit,
+        GameState,
+        ({
+          int playerCount,
+          bool canIncrement,
+          bool canDecrement,
+          int mafiaCount,
+          int citizensCount,
+        })>(
+      selector: (GameState state) => (
+        playerCount: state.playerCount,
+        canIncrement: state.canIncrementPlayers,
+        canDecrement: state.canDecrementPlayers,
+        mafiaCount: state.totalMafiaCount,
+        citizensCount: state.totalCitizensTeamCount,
+      ),
+      builder: (BuildContext context, data) {
+        final GameCubit cubit = context.read<GameCubit>();
+        return _PlayerCounterPanel(
+          playerCount: data.playerCount,
+          canIncrement: data.canIncrement,
+          canDecrement: data.canDecrement,
+          mafiaCount: data.mafiaCount,
+          citizensCount: data.citizensCount,
+          onIncrement: cubit.incrementPlayerCount,
+          onDecrement: cubit.decrementPlayerCount,
+        );
+      },
+    );
+  }
+}
+
+class _MandatoryRolesSection extends StatelessWidget {
+  const _MandatoryRolesSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SectionHeader(
+          title: 'الأدوار الإجبارية',
+          subtitle: '٤ أدوار أساسية ثابتة في كل جولة',
+          trailingBadge: '${GameRole.mandatoryRoles.length}',
+        ),
+        const SizedBox(height: AppSpacing.sm + AppSpacing.xs),
+        ...GameRole.mandatoryRoles.map(
+          (GameRole role) => Padding(
+            key: ValueKey<String>('mandatory_role_${role.id}'),
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: _MandatoryRoleTile(role: role),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OptionalRolesHeaderSection extends StatelessWidget {
+  const _OptionalRolesHeaderSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<GameCubit, GameState, int>(
+      selector: (GameState state) => state.selectedOptionalCount,
+      builder: (BuildContext context, int selectedOptionalCount) {
+        return _SectionHeader(
+          title: 'الأدوار الاختيارية',
+          subtitle: 'فعّل الأدوار الإضافية حسب تكتيك المجموعة',
+          trailingBadge: '$selectedOptionalCount',
+        );
+      },
+    );
+  }
+}
+
+class _OptionalRoleSelectorTile extends StatelessWidget {
+  const _OptionalRoleSelectorTile({required this.role});
+
+  final GameRole role;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<GameCubit, GameState,
+        ({bool isSelected, bool isEnabled})>(
+      selector: (GameState state) => (
+        isSelected: state.enabledOptionalRoleIds.contains(role.id),
+        isEnabled: state.canToggleOptionalRole(role.id),
+      ),
+      builder: (BuildContext context, data) {
+        return _OptionalRoleSwitchTile(
+          role: role,
+          isSelected: data.isSelected,
+          isEnabled: data.isEnabled,
+          onToggle: () => context.read<GameCubit>().toggleOptionalRole(role.id),
+        );
+      },
+    );
+  }
+}
+
+class _StickyDealFooterSection extends StatelessWidget {
+  const _StickyDealFooterSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<GameCubit, GameState,
+        ({int remainingCitizenCount, int playerCount})>(
+      selector: (GameState state) => (
+        remainingCitizenCount: state.remainingCitizenCount,
+        playerCount: state.playerCount,
+      ),
+      builder: (BuildContext context, data) {
+        return _StickyDealFooter(
+          remainingCitizenCount: data.remainingCitizenCount,
+          playerCount: data.playerCount,
+          onDealCards: () {
+            context.read<GameCubit>().dealCards();
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const PlayGridScreen(),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -609,6 +699,8 @@ class _RoleAvatarThumb extends StatelessWidget {
       child: Image.asset(
         imagePath,
         fit: BoxFit.cover,
+        cacheWidth: 160,
+        filterQuality: FilterQuality.medium,
         errorBuilder: (_, __, ___) => Center(
           child: Text(
             cornerIndex,

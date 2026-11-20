@@ -52,10 +52,10 @@ class VerificationVaultScreen extends StatelessWidget {
 /// Post-Deal Player Verification Vault ("خزنة التحقق من الهوية").
 ///
 /// Includes:
-/// 1. Live Faction Balance Bar ("المافيا الأحياء" vs "الصالحون الأحياء")
-/// 2. Automatic Win-Condition Banner (Mafia Victory / Citizens Victory) with Instant Rematch CTA
-/// 3. Suspense Search by Player Number (1..N) with safeguard confirmation & uncropped 2:3 card modal
-/// 4. Eliminated Players Log, "إعادة الليدر الآلي" button, & End-of-Game Full Reveal sheet with Instant Rematch CTA
+/// 1. Live Faction Balance Bar ("المافيا الأحياء" vs "الصالحون الأحياء") via [BlocSelector]
+/// 2. Automatic Win-Condition Banner (Mafia Victory / Citizens Victory) via [BlocSelector]
+/// 3. Suspense Search by Player Number (1..N) with managed [TextEditingController] & [FocusNode]
+/// 4. Eliminated Players Log, "إعادة الليدر الآلي" button, & End-of-Game Full Reveal sheet
 class VerificationVaultView extends StatefulWidget {
   const VerificationVaultView({
     super.key,
@@ -76,35 +76,36 @@ class VerificationVaultView extends StatefulWidget {
 
 class _VerificationVaultViewState extends State<VerificationVaultView> {
   final TextEditingController _playerNumberController = TextEditingController();
+  final FocusNode _playerNumberFocusNode = FocusNode();
   String? _errorText;
 
   @override
   void dispose() {
     _playerNumberController.dispose();
+    _playerNumberFocusNode.dispose();
     super.dispose();
   }
 
-  Future<void> _handleVerifySubmission(
-    BuildContext context,
-    GameState state,
-  ) async {
-    FocusScope.of(context).unfocus();
+  Future<void> _handleVerifySubmission(BuildContext context) async {
+    _playerNumberFocusNode.unfocus();
 
+    final GameCubit cubit = context.read<GameCubit>();
+    final int maxPlayers = cubit.state.playerCount;
     final String rawInput = _playerNumberController.text.trim();
     final int? playerNumber = int.tryParse(rawInput);
 
-    if (playerNumber == null ||
-        playerNumber < 1 ||
-        playerNumber > state.playerCount) {
+    if (playerNumber == null || playerNumber < 1 || playerNumber > maxPlayers) {
       setState(() {
-        _errorText = 'يرجى إدخال رقم لاعب صحيح بين 1 و ${state.playerCount}';
+        _errorText = 'يرجى إدخال رقم لاعب صحيح بين 1 و $maxPlayers';
       });
       return;
     }
 
-    setState(() {
-      _errorText = null;
-    });
+    if (_errorText != null) {
+      setState(() {
+        _errorText = null;
+      });
+    }
 
     final bool? confirmed = await showDialog<bool>(
       context: context,
@@ -132,8 +133,7 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
       return;
     }
 
-    final GameRole? role =
-        context.read<GameCubit>().verifyPlayerRole(playerNumber);
+    final GameRole? role = cubit.verifyPlayerRole(playerNumber);
     if (role == null || !context.mounted) {
       return;
     }
@@ -146,7 +146,7 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
     );
   }
 
-  Future<void> _showPlayerRoleModal({
+  static Future<void> _showPlayerRoleModal({
     required BuildContext context,
     required int playerNumber,
     required GameRole role,
@@ -161,7 +161,8 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
       builder: (BuildContext dialogContext) {
         final Size screenSize = MediaQuery.sizeOf(dialogContext);
         final double maxCardHeight = screenSize.height * 0.62;
-        final double dialogWidth = (screenSize.width * 0.82).clamp(260.0, 380.0);
+        final double dialogWidth =
+            (screenSize.width * 0.82).clamp(260.0, 380.0);
 
         return Dialog(
           backgroundColor: AppColors.charcoalCardTier2,
@@ -234,7 +235,10 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
                       constraints: BoxConstraints(
                         maxHeight: maxCardHeight,
                       ),
-                      child: RoleCardFace(role: role),
+                      child: RoleCardFace(
+                        role: role,
+                        cacheWidth: 720,
+                      ),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.md),
@@ -255,10 +259,7 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
     );
   }
 
-  Future<void> _confirmAndShowAllRoles(
-    BuildContext context,
-    GameState state,
-  ) async {
+  Future<void> _confirmAndShowAllRoles(BuildContext context) async {
     final bool? confirmed = await showDialog<bool>(
       context: context,
       builder: (BuildContext dialogContext) {
@@ -284,6 +285,8 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
     if (confirmed != true || !context.mounted) {
       return;
     }
+
+    final GameState state = context.read<GameCubit>().state;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -472,49 +475,29 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<GameCubit, GameState>(
-      builder: (BuildContext context, GameState state) {
-        final List<int> verifiedList =
-            state.revealedEliminatedPlayers.toList()..sort();
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(AppSpacing.margin),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 1. Isolated Live Faction Balance Bar
+              const _LiveFactionBalanceSection(),
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(AppSpacing.margin),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // 1. Live Faction Balance Bar (Tier 1 split status card)
-                  _LiveFactionBalanceBar(
-                    aliveMafiaCount: state.aliveMafiaCount,
-                    aliveCitizensCount: state.aliveCitizensCount,
-                  ),
+              const SizedBox(height: AppSpacing.md),
 
-                  const SizedBox(height: AppSpacing.md),
+              // 2. Isolated Automatic Win-Condition Banner
+              _WinConditionBannerSection(
+                onInstantRematch: widget.onInstantRematch,
+              ),
 
-                  // 2. Dramatic Automatic Win-Condition Banner
-                  if (state.isMafiaVictory) ...[
-                    _WinConditionBanner(
-                      isMafiaVictory: true,
-                      title: 'سيطرت المافيا على المدينة! انتهت الجولة',
-                      subtitle: 'تساوى عدد المافيا الأحياء مع الصالحين',
-                      onInstantRematch: widget.onInstantRematch,
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                  ] else if (state.isCitizensVictory) ...[
-                    _WinConditionBanner(
-                      isMafiaVictory: false,
-                      title: 'انتصر الصالحون! تم القضاء على جميع أفراد المافيا',
-                      subtitle:
-                          'نجح المواطنون في كشف وطرد جميع عناصر المافيا من المدينة',
-                      onInstantRematch: widget.onInstantRematch,
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                  ],
-
-                  // 3. Suspense Search Box by Player Number
-                  Container(
+              // 3. Suspense Search Box by Player Number
+              BlocSelector<GameCubit, GameState, int>(
+                selector: (GameState state) => state.playerCount,
+                builder: (BuildContext context, int playerCount) {
+                  return Container(
                     padding: const EdgeInsets.all(AppSpacing.lg),
                     decoration:
                         AppElevation.tier3ActiveTarget(radius: AppRadius.xl),
@@ -551,7 +534,7 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    'ابحث برقم اللاعب المطرود (1 - ${state.playerCount}) لكشف بطاقته الحقيقية وتحديث ميزان القوى تلقائياً.',
+                                    'ابحث برقم اللاعب المطرود (1 - $playerCount) لكشف بطاقته الحقيقية وتحديث ميزان القوى تلقائياً.',
                                     style: AppTypography.bodySmall,
                                   ),
                                 ],
@@ -562,6 +545,7 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
                         const SizedBox(height: AppSpacing.md),
                         TextField(
                           controller: _playerNumberController,
+                          focusNode: _playerNumberFocusNode,
                           keyboardType: TextInputType.number,
                           textAlign: TextAlign.right,
                           style: AppTypography.headlineSmall,
@@ -571,22 +555,20 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
                           ],
                           decoration: InputDecoration(
                             hintText:
-                                'أدخل رقم اللاعب المطرود (1 - ${state.playerCount})',
+                                'أدخل رقم اللاعب المطرود (1 - $playerCount)',
                             errorText: _errorText,
                             prefixIcon: const Icon(
                               Icons.tag_rounded,
                               color: AppColors.syndicateCrimson,
                             ),
                           ),
-                          onSubmitted: (_) =>
-                              _handleVerifySubmission(context, state),
+                          onSubmitted: (_) => _handleVerifySubmission(context),
                         ),
                         const SizedBox(height: AppSpacing.md),
                         SizedBox(
                           height: 52,
                           child: ElevatedButton.icon(
-                            onPressed: () =>
-                                _handleVerifySubmission(context, state),
+                            onPressed: () => _handleVerifySubmission(context),
                             icon: const Icon(
                               Icons.visibility_outlined,
                               size: 20,
@@ -596,179 +578,260 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
                         ),
                       ],
                     ),
-                  ),
+                  );
+                },
+              ),
 
-                  const SizedBox(height: AppSpacing.lg),
+              const SizedBox(height: AppSpacing.lg),
 
-                  // 4. Verified Eliminated Players Log
-                  Container(
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    decoration:
-                        AppElevation.tier2RaisedPanel(radius: AppRadius.lg),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'سجل اللاعبين المطرودين',
-                              style: AppTypography.headlineSmall,
-                            ),
-                            Text(
-                              '${verifiedList.length} من ${state.playerCount}',
-                              style: AppTypography.labelMedium,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        if (verifiedList.isEmpty)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: AppSpacing.md,
-                            ),
-                            child: Text(
-                              'لم يتم كشف هوية أي لاعب حتى الآن. عند طرد لاعب بالتصويت، أدخل رقمه أعلاه للتحقق من بطاقته.',
-                              textAlign: TextAlign.center,
-                              style: AppTypography.bodySmall,
-                            ),
-                          )
-                        else
-                          Wrap(
-                            spacing: AppSpacing.sm,
-                            runSpacing: AppSpacing.sm,
-                            children: verifiedList.map((int playerNum) {
-                              final GameRole? role =
-                                  state.playerRoles[playerNum];
-                              if (role == null) {
-                                return const SizedBox.shrink();
-                              }
-                              final bool isMafia = role.team == RoleTeam.mafia;
-                              final Color factionColor = isMafia
-                                  ? AppColors.syndicateCrimson
-                                  : AppColors.citizensTeam;
+              // 4. Isolated Verified Eliminated Players Log
+              const _EliminatedPlayersLogSection(),
 
-                              return InkWell(
-                                onTap: () => _showPlayerRoleModal(
-                                  context: context,
-                                  playerNumber: playerNum,
-                                  role: role,
-                                ),
-                                borderRadius: AppRadius.baseAll,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: AppSpacing.sm + 4,
-                                    vertical: AppSpacing.sm,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.charcoalCardTier1,
-                                    borderRadius: AppRadius.baseAll,
-                                    border: Border.all(
-                                      color:
-                                          factionColor.withValues(alpha: 0.65),
-                                      width: AppElevation.borderWidth,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        'لاعب #$playerNum',
-                                        style: AppTypography.labelLarge,
-                                      ),
-                                      const SizedBox(width: AppSpacing.xs),
-                                      Text(
-                                        '•',
-                                        style:
-                                            AppTypography.labelMedium.copyWith(
-                                          color: AppColors.mutedSlateSilver,
-                                        ),
-                                      ),
-                                      const SizedBox(width: AppSpacing.xs),
-                                      Text(
-                                        role.title,
-                                        style:
-                                            AppTypography.labelLarge.copyWith(
-                                          color: factionColor,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            }).toList(),
+              const SizedBox(height: AppSpacing.lg),
+
+              // 5. Night Moderator Replay, End-of-Game Full Reveal & Instant Rematch Controls
+              SizedBox(
+                height: 50,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    if (widget.onReplayNightModerator != null) {
+                      widget.onReplayNightModerator!();
+                    } else {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const Scaffold(
+                            backgroundColor: AppColors.obsidianCanvas,
+                            body: SafeArea(
+                              child: NightModeratorScreen(),
+                            ),
                           ),
-                      ],
-                    ),
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(
+                    Icons.record_voice_over_outlined,
+                    size: 20,
                   ),
-
-                  const SizedBox(height: AppSpacing.lg),
-
-                  // 5. Night Moderator Replay, End-of-Game Full Reveal & Instant Rematch Controls
-                  SizedBox(
-                    height: 50,
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        if (widget.onReplayNightModerator != null) {
-                          widget.onReplayNightModerator!();
-                        } else {
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => const Scaffold(
-                                backgroundColor: AppColors.obsidianCanvas,
-                                body: SafeArea(
-                                  child: NightModeratorScreen(),
-                                ),
-                              ),
-                            ),
-                          );
-                        }
-                      },
-                      icon: const Icon(
-                        Icons.record_voice_over_outlined,
-                        size: 20,
-                      ),
-                      label: const Text('إعادة الليدر الآلي'),
-                    ),
+                  label: const Text('إعادة الليدر الآلي'),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm + AppSpacing.xs),
+              SizedBox(
+                height: 50,
+                child: OutlinedButton.icon(
+                  onPressed: () => _confirmAndShowAllRoles(context),
+                  icon: const Icon(Icons.fact_check_outlined, size: 20),
+                  label: const Text('كشف جميع الأدوار (نهاية الجولة)'),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm + AppSpacing.xs),
+              SizedBox(
+                height: 52,
+                child: ElevatedButton.icon(
+                  onPressed: widget.onInstantRematch,
+                  icon: const Icon(Icons.replay_rounded, size: 20),
+                  label: const Text('جولة جديدة (إعادة خلط فورية)'),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  TextButton.icon(
+                    onPressed: widget.onReturnToSetup,
+                    icon: const Icon(Icons.tune_rounded, size: 18),
+                    label: const Text('تعديل الإعدادات'),
                   ),
-                  const SizedBox(height: AppSpacing.sm + AppSpacing.xs),
-                  SizedBox(
-                    height: 50,
-                    child: OutlinedButton.icon(
-                      onPressed: () =>
-                          _confirmAndShowAllRoles(context, state),
-                      icon: const Icon(Icons.fact_check_outlined, size: 20),
-                      label: const Text('كشف جميع الأدوار (نهاية الجولة)'),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm + AppSpacing.xs),
-                  SizedBox(
-                    height: 52,
-                    child: ElevatedButton.icon(
-                      onPressed: widget.onInstantRematch,
-                      icon: const Icon(Icons.replay_rounded, size: 20),
-                      label: const Text('جولة جديدة (إعادة خلط فورية)'),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      TextButton.icon(
-                        onPressed: widget.onReturnToSetup,
-                        icon: const Icon(Icons.tune_rounded, size: 18),
-                        label: const Text('تعديل الإعدادات'),
-                      ),
-                      TextButton.icon(
-                        onPressed: widget.onReturnHome,
-                        icon: const Icon(Icons.home_outlined, size: 18),
-                        label: const Text('القائمة الرئيسية'),
-                      ),
-                    ],
+                  TextButton.icon(
+                    onPressed: widget.onReturnHome,
+                    icon: const Icon(Icons.home_outlined, size: 18),
+                    label: const Text('القائمة الرئيسية'),
                   ),
                 ],
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LiveFactionBalanceSection extends StatelessWidget {
+  const _LiveFactionBalanceSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<GameCubit, GameState,
+        ({int aliveMafiaCount, int aliveCitizensCount})>(
+      selector: (GameState state) => (
+        aliveMafiaCount: state.aliveMafiaCount,
+        aliveCitizensCount: state.aliveCitizensCount,
+      ),
+      builder: (BuildContext context, data) {
+        return _LiveFactionBalanceBar(
+          aliveMafiaCount: data.aliveMafiaCount,
+          aliveCitizensCount: data.aliveCitizensCount,
+        );
+      },
+    );
+  }
+}
+
+class _WinConditionBannerSection extends StatelessWidget {
+  const _WinConditionBannerSection({required this.onInstantRematch});
+
+  final VoidCallback onInstantRematch;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<GameCubit, GameState,
+        ({bool isMafiaVictory, bool isCitizensVictory})>(
+      selector: (GameState state) => (
+        isMafiaVictory: state.isMafiaVictory,
+        isCitizensVictory: state.isCitizensVictory,
+      ),
+      builder: (BuildContext context, data) {
+        if (data.isMafiaVictory) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.md),
+            child: _WinConditionBanner(
+              isMafiaVictory: true,
+              title: 'سيطرت المافيا على المدينة! انتهت الجولة',
+              subtitle: 'تساوى عدد المافيا الأحياء مع الصالحين',
+              onInstantRematch: onInstantRematch,
             ),
+          );
+        }
+        if (data.isCitizensVictory) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.md),
+            child: _WinConditionBanner(
+              isMafiaVictory: false,
+              title: 'انتصر الصالحون! تم القضاء على جميع أفراد المافيا',
+              subtitle:
+                  'نجح المواطنون في كشف وطرد جميع عناصر المافيا من المدينة',
+              onInstantRematch: onInstantRematch,
+            ),
+          );
+        }
+        return const SizedBox.shrink();
+      },
+    );
+  }
+}
+
+class _EliminatedPlayersLogSection extends StatelessWidget {
+  const _EliminatedPlayersLogSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<GameCubit, GameState>(
+      buildWhen: (GameState previous, GameState current) =>
+          previous.revealedEliminatedPlayers !=
+              current.revealedEliminatedPlayers ||
+          previous.playerCount != current.playerCount ||
+          previous.playerRoles != current.playerRoles,
+      builder: (BuildContext context, GameState state) {
+        final List<int> verifiedList =
+            state.revealedEliminatedPlayers.toList()..sort();
+
+        return Container(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: AppElevation.tier2RaisedPanel(radius: AppRadius.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'سجل اللاعبين المطرودين',
+                    style: AppTypography.headlineSmall,
+                  ),
+                  Text(
+                    '${verifiedList.length} من ${state.playerCount}',
+                    style: AppTypography.labelMedium,
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              if (verifiedList.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: AppSpacing.md,
+                  ),
+                  child: Text(
+                    'لم يتم كشف هوية أي لاعب حتى الآن. عند طرد لاعب بالتصويت، أدخل رقمه أعلاه للتحقق من بطاقته.',
+                    textAlign: TextAlign.center,
+                    style: AppTypography.bodySmall,
+                  ),
+                )
+              else
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  children: verifiedList.map((int playerNum) {
+                    final GameRole? role = state.playerRoles[playerNum];
+                    if (role == null) {
+                      return const SizedBox.shrink();
+                    }
+                    final bool isMafia = role.team == RoleTeam.mafia;
+                    final Color factionColor = isMafia
+                        ? AppColors.syndicateCrimson
+                        : AppColors.citizensTeam;
+
+                    return InkWell(
+                      key: ValueKey<int>(playerNum),
+                      onTap: () =>
+                          _VerificationVaultViewState._showPlayerRoleModal(
+                        context: context,
+                        playerNumber: playerNum,
+                        role: role,
+                      ),
+                      borderRadius: AppRadius.baseAll,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.sm + 4,
+                          vertical: AppSpacing.sm,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.charcoalCardTier1,
+                          borderRadius: AppRadius.baseAll,
+                          border: Border.all(
+                            color: factionColor.withValues(alpha: 0.65),
+                            width: AppElevation.borderWidth,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'لاعب #$playerNum',
+                              style: AppTypography.labelLarge,
+                            ),
+                            const SizedBox(width: AppSpacing.xs),
+                            Text(
+                              '•',
+                              style: AppTypography.labelMedium.copyWith(
+                                color: AppColors.mutedSlateSilver,
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.xs),
+                            Text(
+                              role.title,
+                              style: AppTypography.labelLarge.copyWith(
+                                color: factionColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+            ],
           ),
         );
       },

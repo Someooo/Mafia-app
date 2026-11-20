@@ -156,6 +156,8 @@ class _RoleGuideCard extends StatelessWidget {
                 child: Image.asset(
                   role.imagePath,
                   fit: BoxFit.cover,
+                  cacheWidth: 180,
+                  filterQuality: FilterQuality.medium,
                   errorBuilder: (_, __, ___) => Center(
                     child: Text(
                       role.team.cornerIndex,

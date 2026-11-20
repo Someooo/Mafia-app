@@ -11,6 +11,7 @@ import '../../domain/entities/game_role.dart';
 import '../../domain/entities/playable_card.dart';
 import '../cubit/game_cubit.dart';
 import '../cubit/game_state.dart';
+import '../utils/game_asset_precacher.dart';
 import '../widgets/flip_card_widget.dart';
 import 'night_moderator_screen.dart';
 import 'verification_vault_screen.dart';
@@ -19,6 +20,9 @@ import 'verification_vault_screen.dart';
 /// unnumbered intuitive 3D card picking (exact 2:3 aspect ratio),
 /// enlarged 3D spotlight card reveal overlay, pass-the-phone privacy shield,
 /// automated Night-1 Audio & Visual Moderator, and transition to the Verification Vault.
+///
+/// Optimized with granular [BlocSelector] widgets so flipping or claiming card `i`
+/// only rebuilds affected cells rather than the entire screen or grid.
 class PlayGridScreen extends StatefulWidget {
   const PlayGridScreen({super.key});
 
@@ -35,7 +39,7 @@ class _PlayGridScreenState extends State<PlayGridScreen> {
     super.didChangeDependencies();
     if (!_hasPrecached) {
       _hasPrecached = true;
-      unawaited(GameAssets.precacheAll(context));
+      unawaited(GameAssetPrecacher.precacheAll(context));
     }
   }
 
@@ -97,7 +101,7 @@ class _PlayGridScreenState extends State<PlayGridScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocConsumer<GameCubit, GameState>(
+    return BlocListener<GameCubit, GameState>(
       listenWhen: (GameState previous, GameState current) =>
           previous.isAllCardsClaimed && !current.isAllCardsClaimed,
       listener: (BuildContext context, GameState state) {
@@ -107,109 +111,153 @@ class _PlayGridScreenState extends State<PlayGridScreen> {
           });
         }
       },
-      builder: (BuildContext context, GameState state) {
-        final GameCubit cubit = context.read<GameCubit>();
-        final bool showNightModerator =
-            state.isAllCardsClaimed && !_hasCompletedNightModerator;
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (bool didPop, Object? result) {
+          if (didPop) {
+            return;
+          }
+          unawaited(_confirmExitRound(context));
+        },
+        child: Scaffold(
+          backgroundColor: AppColors.obsidianCanvas,
+          body: SafeArea(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                BlocSelector<GameCubit, GameState, bool>(
+                  selector: (GameState state) => state.isAllCardsClaimed,
+                  builder: (BuildContext context, bool isAllCardsClaimed) {
+                    final GameCubit cubit = context.read<GameCubit>();
+                    final bool showNightModerator =
+                        isAllCardsClaimed && !_hasCompletedNightModerator;
 
-        return PopScope(
-          canPop: false,
-          onPopInvokedWithResult: (bool didPop, Object? result) {
-            if (didPop) {
-              return;
-            }
-            unawaited(_confirmExitRound(context));
-          },
-          child: Scaffold(
-            backgroundColor: AppColors.obsidianCanvas,
-            body: SafeArea(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Top Tactical Header Bar
-                      _PlayGridHeader(
-                        remainingCount: state.remainingCardsCount,
-                        totalCount: state.totalCards,
-                        currentTurnPlayerNumber: state.currentTurnPlayerNumber,
-                        isAllClaimed: state.isAllCardsClaimed,
-                        isNightModeratorActive: showNightModerator,
-                        onReshufflePressed: () => _confirmReshuffle(context),
-                        onBackPressed: () => _confirmExitRound(context),
-                      ),
-                      // Top 2px countdown/progress razor gauge (hidden while NightModerator renders its own gauge)
-                      if (!showNightModerator)
-                        LinearProgressIndicator(
-                          value: state.totalCards == 0
-                              ? 0
-                              : state.remainingCardsCount / state.totalCards,
-                          minHeight: AppSpacing.countdownGaugeHeight,
-                          backgroundColor: AppColors.charcoalCardTier2,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            state.remainingCardsCount <= 2
-                                ? AppColors.syndicateCrimson
-                                : AppColors.mutedSlateSilver,
-                          ),
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Top Tactical Header Bar (selects only header counts)
+                        _PlayGridHeaderSection(
+                          isNightModeratorActive: showNightModerator,
+                          onReshufflePressed: () => _confirmReshuffle(context),
+                          onBackPressed: () => _confirmExitRound(context),
                         ),
-                      Expanded(
-                        child: state.isAllCardsClaimed
-                            ? (showNightModerator
-                                ? NightModeratorScreen(
-                                    onCompleted: () {
-                                      if (mounted) {
+                        // Top 2px countdown/progress razor gauge
+                        if (!showNightModerator) const _DealProgressGauge(),
+                        Expanded(
+                          child: isAllCardsClaimed
+                              ? (showNightModerator
+                                  ? NightModeratorScreen(
+                                      onCompleted: () {
+                                        if (mounted) {
+                                          setState(() {
+                                            _hasCompletedNightModerator = true;
+                                          });
+                                        }
+                                      },
+                                    )
+                                  : VerificationVaultView(
+                                      onInstantRematch: () {
                                         setState(() {
-                                          _hasCompletedNightModerator = true;
+                                          _hasCompletedNightModerator = false;
                                         });
-                                      }
-                                    },
-                                  )
-                                : VerificationVaultView(
-                                    onInstantRematch: () {
-                                      setState(() {
-                                        _hasCompletedNightModerator = false;
-                                      });
-                                      cubit.startInstantRematch();
-                                    },
-                                    onReplayNightModerator: () {
-                                      setState(() {
-                                        _hasCompletedNightModerator = false;
-                                      });
-                                    },
-                                    onReturnToSetup: () =>
-                                        _confirmExitRound(context),
-                                    onReturnHome: () => Navigator.of(context)
-                                        .popUntil(
-                                            (Route<dynamic> r) => r.isFirst),
-                                  ))
-                            : _CardsGridContent(
-                                state: state,
-                                onCardTapHidden: cubit.revealCard,
-                                onCardTapRevealed: cubit.claimAndHideCard,
-                              ),
-                      ),
-                    ],
-                  ),
+                                        cubit.startInstantRematch();
+                                      },
+                                      onReplayNightModerator: () {
+                                        setState(() {
+                                          _hasCompletedNightModerator = false;
+                                        });
+                                      },
+                                      onReturnToSetup: () =>
+                                          _confirmExitRound(context),
+                                      onReturnHome: () => Navigator.of(context)
+                                          .popUntil(
+                                              (Route<dynamic> r) => r.isFirst),
+                                    ))
+                              : const _CardsGridContent(),
+                        ),
+                      ],
+                    );
+                  },
+                ),
 
-                  // Enlarged 2:3 Spotlight Revealed Role Overlay with 8px backdrop blur
-                  if (state.revealedCard != null)
-                    _RevealedRoleOverlay(
-                      card: state.revealedCard!,
-                      playerNumber: state.currentTurnPlayerNumber,
-                      onClaimAndHide: () =>
-                          cubit.claimAndHideCard(state.revealedCardIndex!),
-                    ),
+                // Isolated Spotlight Revealed Role Overlay
+                const _RevealedRoleOverlaySection(),
 
-                  // Transitional Pass-the-Phone Privacy Shield
-                  if (state.showPassPhoneOverlay)
-                    _PassPhonePrivacyOverlay(
-                      nextPlayerNumber: state.currentTurnPlayerNumber,
-                      onContinue: cubit.dismissPassPhoneOverlay,
-                    ),
-                ],
-              ),
+                // Isolated Pass-the-Phone Privacy Shield
+                const _PassPhonePrivacyOverlaySection(),
+              ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlayGridHeaderSection extends StatelessWidget {
+  const _PlayGridHeaderSection({
+    required this.isNightModeratorActive,
+    required this.onReshufflePressed,
+    required this.onBackPressed,
+  });
+
+  final bool isNightModeratorActive;
+  final VoidCallback onReshufflePressed;
+  final VoidCallback onBackPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<
+        GameCubit,
+        GameState,
+        ({
+          int remainingCount,
+          int totalCount,
+          int currentTurnPlayerNumber,
+          bool isAllClaimed,
+        })>(
+      selector: (GameState state) => (
+        remainingCount: state.remainingCardsCount,
+        totalCount: state.totalCards,
+        currentTurnPlayerNumber: state.currentTurnPlayerNumber,
+        isAllClaimed: state.isAllCardsClaimed,
+      ),
+      builder: (BuildContext context, data) {
+        return _PlayGridHeader(
+          remainingCount: data.remainingCount,
+          totalCount: data.totalCount,
+          currentTurnPlayerNumber: data.currentTurnPlayerNumber,
+          isAllClaimed: data.isAllClaimed,
+          isNightModeratorActive: isNightModeratorActive,
+          onReshufflePressed: onReshufflePressed,
+          onBackPressed: onBackPressed,
+        );
+      },
+    );
+  }
+}
+
+class _DealProgressGauge extends StatelessWidget {
+  const _DealProgressGauge();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<GameCubit, GameState,
+        ({int remainingCount, int totalCount})>(
+      selector: (GameState state) => (
+        remainingCount: state.remainingCardsCount,
+        totalCount: state.totalCards,
+      ),
+      builder: (BuildContext context, data) {
+        return LinearProgressIndicator(
+          value:
+              data.totalCount == 0 ? 0 : data.remainingCount / data.totalCount,
+          minHeight: AppSpacing.countdownGaugeHeight,
+          backgroundColor: AppColors.charcoalCardTier2,
+          valueColor: AlwaysStoppedAnimation<Color>(
+            data.remainingCount <= 2
+                ? AppColors.syndicateCrimson
+                : AppColors.mutedSlateSilver,
           ),
         );
       },
@@ -302,23 +350,60 @@ class _PlayGridHeader extends StatelessWidget {
 }
 
 class _CardsGridContent extends StatelessWidget {
-  const _CardsGridContent({
-    required this.state,
-    required this.onCardTapHidden,
-    required this.onCardTapRevealed,
-  });
-
-  final GameState state;
-  final ValueChanged<int> onCardTapHidden;
-  final ValueChanged<int> onCardTapRevealed;
+  const _CardsGridContent();
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Prominent Turn Badge: "دور اللاعب رقم {currentTurnPlayerNumber}"
-        Container(
+        const _CurrentPlayerTurnBanner(),
+        Expanded(
+          child: BlocSelector<GameCubit, GameState, int>(
+            selector: (GameState state) => state.cards.length,
+            builder: (BuildContext context, int cardCount) {
+              return GridView.builder(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.margin,
+                  AppSpacing.sm,
+                  AppSpacing.margin,
+                  AppSpacing.lg,
+                ),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  mainAxisSpacing: AppSpacing.gutter,
+                  crossAxisSpacing: AppSpacing.gutter,
+                  childAspectRatio: FlipCardWidget.cardAspectRatio, // Exact 2/3
+                ),
+                itemCount: cardCount,
+                itemBuilder: (BuildContext context, int index) {
+                  return _PlayGridCardCell(
+                    key: ValueKey<int>(index),
+                    index: index,
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CurrentPlayerTurnBanner extends StatelessWidget {
+  const _CurrentPlayerTurnBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<GameCubit, GameState,
+        ({int currentTurnPlayerNumber, bool hasRevealedCard})>(
+      selector: (GameState state) => (
+        currentTurnPlayerNumber: state.currentTurnPlayerNumber,
+        hasRevealedCard: state.hasRevealedCard,
+      ),
+      builder: (BuildContext context, data) {
+        return Container(
           margin: const EdgeInsets.fromLTRB(
             AppSpacing.margin,
             AppSpacing.md,
@@ -352,7 +437,7 @@ class _CardsGridContent extends StatelessWidget {
                       borderRadius: AppRadius.smAll,
                     ),
                     child: Text(
-                      '#${state.currentTurnPlayerNumber}',
+                      '#${data.currentTurnPlayerNumber}',
                       style: AppTypography.labelMedium.copyWith(
                         color: AppColors.pureWhite,
                         fontWeight: FontWeight.w700,
@@ -361,51 +446,119 @@ class _CardsGridContent extends StatelessWidget {
                   ),
                   const SizedBox(width: AppSpacing.sm),
                   Text(
-                    'دور اللاعب رقم ${state.currentTurnPlayerNumber}',
+                    'دور اللاعب رقم ${data.currentTurnPlayerNumber}',
                     style: AppTypography.labelLarge,
                   ),
                 ],
               ),
               Text(
-                state.hasRevealedCard
+                data.hasRevealedCard
                     ? 'بطاقة قيد المعاينة...'
                     : 'احفظ رقمك واسحب بطاقة',
                 style: AppTypography.labelMedium,
               ),
             ],
           ),
-        ),
-        Expanded(
-          child: GridView.builder(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.margin,
-              AppSpacing.sm,
-              AppSpacing.margin,
-              AppSpacing.lg,
-            ),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              mainAxisSpacing: AppSpacing.gutter,
-              crossAxisSpacing: AppSpacing.gutter,
-              childAspectRatio: FlipCardWidget.cardAspectRatio, // Exact 2 / 3
-            ),
-            itemCount: state.cards.length,
-            itemBuilder: (BuildContext context, int index) {
-              final PlayableCard card = state.cards[index];
-              final bool isLockedByAnother =
-                  state.hasRevealedCard && state.revealedCardIndex != index;
+        );
+      },
+    );
+  }
+}
 
-              return FlipCardWidget(
-                key: ValueKey<String>(card.id),
-                card: card,
-                isLockedByAnotherReveal: isLockedByAnother,
-                onTapHidden: () => onCardTapHidden(index),
-                onTapRevealed: () => onCardTapRevealed(index),
-              );
-            },
-          ),
-        ),
-      ],
+/// Individual grid cell listening exclusively to its own [PlayableCard] and lock status.
+class _PlayGridCardCell extends StatelessWidget {
+  const _PlayGridCardCell({
+    super.key,
+    required this.index,
+  });
+
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<GameCubit, GameState,
+        ({PlayableCard? card, bool isLockedByAnother})>(
+      selector: (GameState state) {
+        if (index < 0 || index >= state.cards.length) {
+          return (card: null, isLockedByAnother: false);
+        }
+        return (
+          card: state.cards[index],
+          isLockedByAnother:
+              state.hasRevealedCard && state.revealedCardIndex != index,
+        );
+      },
+      builder: (BuildContext context, data) {
+        final PlayableCard? card = data.card;
+        if (card == null) {
+          return const SizedBox.shrink();
+        }
+        final GameCubit cubit = context.read<GameCubit>();
+        return FlipCardWidget(
+          key: ValueKey<String>(card.id),
+          card: card,
+          isLockedByAnotherReveal: data.isLockedByAnother,
+          onTapHidden: () => cubit.revealCard(index),
+          onTapRevealed: () => cubit.claimAndHideCard(index),
+        );
+      },
+    );
+  }
+}
+
+class _RevealedRoleOverlaySection extends StatelessWidget {
+  const _RevealedRoleOverlaySection();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<
+        GameCubit,
+        GameState,
+        ({
+          PlayableCard? revealedCard,
+          int? revealedIndex,
+          int playerNumber,
+        })>(
+      selector: (GameState state) => (
+        revealedCard: state.revealedCard,
+        revealedIndex: state.revealedCardIndex,
+        playerNumber: state.currentTurnPlayerNumber,
+      ),
+      builder: (BuildContext context, data) {
+        if (data.revealedCard == null || data.revealedIndex == null) {
+          return const SizedBox.shrink();
+        }
+        return _RevealedRoleOverlay(
+          card: data.revealedCard!,
+          playerNumber: data.playerNumber,
+          onClaimAndHide: () =>
+              context.read<GameCubit>().claimAndHideCard(data.revealedIndex!),
+        );
+      },
+    );
+  }
+}
+
+class _PassPhonePrivacyOverlaySection extends StatelessWidget {
+  const _PassPhonePrivacyOverlaySection();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocSelector<GameCubit, GameState,
+        ({bool showOverlay, int nextPlayerNumber})>(
+      selector: (GameState state) => (
+        showOverlay: state.showPassPhoneOverlay,
+        nextPlayerNumber: state.currentTurnPlayerNumber,
+      ),
+      builder: (BuildContext context, data) {
+        if (!data.showOverlay) {
+          return const SizedBox.shrink();
+        }
+        return _PassPhonePrivacyOverlay(
+          nextPlayerNumber: data.nextPlayerNumber,
+          onContinue: context.read<GameCubit>().dismissPassPhoneOverlay,
+        );
+      },
     );
   }
 }
@@ -426,7 +579,8 @@ class _RevealedRoleOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Size screenSize = MediaQuery.sizeOf(context);
-    final double spotlightWidth = (screenSize.width * 0.78).clamp(240.0, 360.0);
+    final double spotlightWidth =
+        (screenSize.width * 0.78).clamp(240.0, 360.0);
     final double maxCardHeight = screenSize.height * 0.62;
 
     final GameRole role = card.role;
