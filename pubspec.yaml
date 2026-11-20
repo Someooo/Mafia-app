@@ -32,17 +32,17 @@ flutter:
     - assets/fonts/
 
 flutter_launcher_icons:
-  android: "launcher_icon"
+  android: true
   ios: true
-  remove_alpha_ios: true
-  image_path: "assets/images/لوقو النيتف سبلاش.jpg"
+  image_path: "assets/images/app_logo.png"
   adaptive_icon_background: "#0D0D0D"
-  adaptive_icon_foreground: "assets/images/لوقو النيتف سبلاش.jpg"
+  adaptive_icon_foreground: "assets/images/splash_logo_padded.png"
+  remove_alpha_ios: true
   min_sdk_android: 21
 
 flutter_native_splash:
   color: "#0D0D0D"
-  image: "assets/images/لوقو النيتف سبلاش.jpg"
+  image: "assets/images/splash_logo_padded.png"
   android: true
   ios: true
   web: false
@@ -51,5 +51,5 @@ flutter_native_splash:
   fullscreen: true
   android_12:
     color: "#0D0D0D"
-    image: "assets/images/لوقو النيتف سبلاش.jpg"
+    image: "assets/images/splash_logo_padded.png"
     icon_background_color: "#0D0D0D"
