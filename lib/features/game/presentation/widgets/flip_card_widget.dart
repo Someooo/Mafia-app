@@ -9,6 +9,7 @@ import '../../domain/entities/game_role.dart';
 import '../../domain/entities/playable_card.dart';
 
 /// 3D Y-axis rotating role card following the Obsidian Syndicate playing-card motif.
+/// Hidden cards remain intentionally unnumbered so players pick randomly by intuition.
 class FlipCardWidget extends StatefulWidget {
   const FlipCardWidget({
     super.key,
@@ -65,7 +66,9 @@ class _FlipCardWidgetState extends State<FlipCardWidget>
   @override
   Widget build(BuildContext context) {
     if (widget.card.isClaimed) {
-      return _ClaimedCardSlot(cardNumber: widget.card.index + 1);
+      return _ClaimedCardSlot(
+        assignedPlayerNumber: widget.card.assignedPlayerNumber,
+      );
     }
 
     return AnimatedOpacity(
@@ -99,7 +102,6 @@ class _FlipCardWidgetState extends State<FlipCardWidget>
                       child: _CardFrontFace(role: widget.card.role),
                     )
                   : _CardBackFace(
-                      cardNumber: widget.card.index + 1,
                       isLocked: widget.isLockedByAnotherReveal,
                     ),
             );
@@ -112,11 +114,9 @@ class _FlipCardWidgetState extends State<FlipCardWidget>
 
 class _CardBackFace extends StatelessWidget {
   const _CardBackFace({
-    required this.cardNumber,
     required this.isLocked,
   });
 
-  final int cardNumber;
   final bool isLocked;
 
   @override
@@ -150,43 +150,27 @@ class _CardBackFace extends StatelessWidget {
               ),
             ),
           ),
-          // Dark vignette overlay for high-contrast numbering
           DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  AppColors.obsidianCanvas.withValues(alpha: 0.55),
+                  AppColors.obsidianCanvas.withValues(alpha: 0.45),
                   Colors.transparent,
-                  AppColors.obsidianCanvas.withValues(alpha: 0.82),
+                  AppColors.obsidianCanvas.withValues(alpha: 0.78),
                 ],
               ),
             ),
           ),
-          // Top-right card number badge
+          // Top-right decorative playing card pip (unnumbered for intuitive picking)
           Positioned(
             top: 6,
-            right: 6,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 6,
-                vertical: 2,
-              ),
-              decoration: BoxDecoration(
-                color: AppColors.obsidianCanvas.withValues(alpha: 0.82),
-                borderRadius: AppRadius.smAll,
-                border: Border.all(
-                  color: AppColors.borderRaised,
-                  width: 0.8,
-                ),
-              ),
-              child: Text(
-                '$cardNumber',
-                style: AppTypography.labelSmall.copyWith(
-                  color: AppColors.pureWhite,
-                  fontWeight: FontWeight.w700,
-                ),
+            right: 8,
+            child: Text(
+              '♦',
+              style: AppTypography.labelMedium.copyWith(
+                color: AppColors.pipInactive,
               ),
             ),
           ),
@@ -252,7 +236,6 @@ class _CardFrontFace extends StatelessWidget {
               ),
             ),
           ),
-          // Top-right corner faction index ("م" or "مـ")
           Positioned(
             top: 6,
             right: 6,
@@ -262,7 +245,6 @@ class _CardFrontFace extends StatelessWidget {
               color: accentColor,
             ),
           ),
-          // Bottom-left mirrored corner faction index
           Positioned(
             bottom: 6,
             left: 6,
@@ -272,7 +254,6 @@ class _CardFrontFace extends StatelessWidget {
               color: accentColor,
             ),
           ),
-          // Role Title & Tap-to-Hide hint
           Positioned(
             right: 6,
             left: 6,
@@ -342,9 +323,9 @@ class _CornerIndexPip extends StatelessWidget {
 }
 
 class _ClaimedCardSlot extends StatelessWidget {
-  const _ClaimedCardSlot({required this.cardNumber});
+  const _ClaimedCardSlot({this.assignedPlayerNumber});
 
-  final int cardNumber;
+  final int? assignedPlayerNumber;
 
   @override
   Widget build(BuildContext context) {
@@ -384,12 +365,13 @@ class _ClaimedCardSlot extends StatelessWidget {
               color: AppColors.mutedSlateSilver,
             ),
           ),
-          Text(
-            '#$cardNumber',
-            style: AppTypography.labelSmall.copyWith(
-              color: AppColors.mutedSlateSilver.withValues(alpha: 0.5),
+          if (assignedPlayerNumber != null)
+            Text(
+              'لاعب #$assignedPlayerNumber',
+              style: AppTypography.labelSmall.copyWith(
+                color: AppColors.mutedSlateSilver.withValues(alpha: 0.6),
+              ),
             ),
-          ),
         ],
       ),
     );

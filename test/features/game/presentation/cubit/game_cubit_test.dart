@@ -11,7 +11,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
-  group('GameCubit State Management & Anti-Cheat Tests', () {
+  group('GameCubit State Management, Sequential Player Binding & Verification Vault Tests', () {
     test(
       'enforces player count bounds (6..18) and prevents remainingCitizenCount from dropping below 0',
       () {
@@ -62,6 +62,7 @@ void main() {
 
         expect(cubit.state.cards.length, 6);
         expect(cubit.state.revealedCardIndex, isNull);
+        expect(cubit.state.currentTurnPlayerNumber, 1);
 
         // Reveal card 0
         cubit.revealCard(0);
@@ -73,12 +74,14 @@ void main() {
         expect(cubit.state.revealedCardIndex, 0);
         expect(cubit.state.cards[1].isHidden, isTrue);
 
-        // Claim and hide card 0
+        // Claim and hide card 0 -> binds to Player #1 and advances turn to Player #2
         cubit.claimAndHideCard(0);
         expect(cubit.state.cards[0].isClaimed, isTrue);
+        expect(cubit.state.cards[0].assignedPlayerNumber, 1);
+        expect(cubit.state.playerRoles[1], cubit.state.cards[0].role);
         expect(cubit.state.revealedCardIndex, isNull);
         expect(cubit.state.showPassPhoneOverlay, isTrue);
-        expect(cubit.state.nextPlayerNumber, 2);
+        expect(cubit.state.currentTurnPlayerNumber, 2);
 
         // Attempt to reveal card 1 while Pass-the-Phone privacy shield is still active -> MUST BE BLOCKED
         cubit.revealCard(1);
@@ -99,30 +102,61 @@ void main() {
     );
 
     test(
-      'claiming all cards transitions to isAllCardsClaimed without showing pass-phone overlay on the final card',
+      'binds players sequentially (1..N) regardless of which grid index they pick and supports verifyPlayerRole lookup',
       () {
         final GameCubit cubit = GameCubit();
         cubit.dealCards();
 
-        for (int i = 0; i < cubit.state.cards.length; i++) {
-          cubit.revealCard(i);
-          cubit.claimAndHideCard(i);
-          if (i < cubit.state.cards.length - 1) {
+        // Players pick cards in non-linear grid order: [4, 1, 5, 0, 3, 2]
+        const List<int> pickOrder = [4, 1, 5, 0, 3, 2];
+
+        for (int turn = 0; turn < pickOrder.length; turn++) {
+          final int expectedPlayerNumber = turn + 1;
+          final int pickedCardIndex = pickOrder[turn];
+
+          expect(cubit.state.currentTurnPlayerNumber, expectedPlayerNumber);
+          cubit.revealCard(pickedCardIndex);
+          cubit.claimAndHideCard(pickedCardIndex);
+
+          expect(
+            cubit.state.cards[pickedCardIndex].assignedPlayerNumber,
+            expectedPlayerNumber,
+          );
+          expect(
+            cubit.state.getRoleForPlayer(expectedPlayerNumber),
+            cubit.state.cards[pickedCardIndex].role,
+          );
+
+          if (turn < pickOrder.length - 1) {
             expect(cubit.state.showPassPhoneOverlay, isTrue);
             cubit.dismissPassPhoneOverlay();
           }
         }
 
         expect(cubit.state.isAllCardsClaimed, isTrue);
-        expect(cubit.state.remainingCardsCount, 0);
+        expect(cubit.state.playerRoles.length, 6);
         expect(cubit.state.showPassPhoneOverlay, isFalse);
+
+        // Verify Player #1 (who picked card index 4) and Player #3 (who picked card index 5)
+        final GameRole? player1Role = cubit.verifyPlayerRole(1);
+        expect(player1Role, cubit.state.cards[4].role);
+        expect(cubit.state.revealedEliminatedPlayers, contains(1));
+
+        final GameRole? player3Role = cubit.verifyPlayerRole(3);
+        expect(player3Role, cubit.state.cards[5].role);
+        expect(cubit.state.revealedEliminatedPlayers, containsAll(<int>[1, 3]));
+
+        // Out-of-range player numbers return null and are not added
+        expect(cubit.verifyPlayerRole(0), isNull);
+        expect(cubit.verifyPlayerRole(99), isNull);
+        expect(cubit.state.revealedEliminatedPlayers.length, 2);
 
         cubit.close();
       },
     );
 
     test(
-      'reshuffle() resets all cards back to hidden while preserving active playerCount and optional roles',
+      'reshuffle() resets all cards, playerRoles, currentTurnPlayerNumber, and revealedEliminatedPlayers while preserving setup config',
       () {
         final GameCubit cubit = GameCubit();
         cubit.incrementPlayerCount(); // 7
@@ -131,9 +165,15 @@ void main() {
         cubit.toggleOptionalRole(GameRole.regularMafia.id);
 
         cubit.dealCards();
-        cubit.revealCard(0);
-        cubit.claimAndHideCard(0);
+        cubit.revealCard(3);
+        cubit.claimAndHideCard(3);
+        cubit.dismissPassPhoneOverlay();
+        cubit.verifyPlayerRole(1);
+
         expect(cubit.state.claimedCardsCount, 1);
+        expect(cubit.state.currentTurnPlayerNumber, 2);
+        expect(cubit.state.playerRoles.isNotEmpty, isTrue);
+        expect(cubit.state.revealedEliminatedPlayers.isNotEmpty, isTrue);
 
         // Trigger reshuffle
         cubit.reshuffle();
@@ -145,9 +185,14 @@ void main() {
         );
         expect(cubit.state.cards.length, 8);
         expect(
-          cubit.state.cards.every((PlayableCard c) => c.isHidden),
+          cubit.state.cards.every(
+            (PlayableCard c) => c.isHidden && c.assignedPlayerNumber == null,
+          ),
           isTrue,
         );
+        expect(cubit.state.currentTurnPlayerNumber, 1);
+        expect(cubit.state.playerRoles, isEmpty);
+        expect(cubit.state.revealedEliminatedPlayers, isEmpty);
         expect(cubit.state.revealedCardIndex, isNull);
         expect(cubit.state.showPassPhoneOverlay, isFalse);
 
@@ -162,7 +207,6 @@ void main() {
         firstCubit.incrementPlayerCount(); // 7
         firstCubit.incrementPlayerCount(); // 8
         firstCubit.toggleOptionalRole(GameRole.sniper.id);
-        await Future<void>.delayed(const Duration(milliseconds: 20));
         await firstCubit.close();
 
         final GameCubit restoredCubit = GameCubit();

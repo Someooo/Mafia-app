@@ -11,10 +11,11 @@ import '../../domain/entities/playable_card.dart';
 import '../cubit/game_cubit.dart';
 import '../cubit/game_state.dart';
 import '../widgets/flip_card_widget.dart';
+import 'verification_vault_screen.dart';
 
-/// Play Grid Screen managing secret role card distribution, 3D flips,
-/// single-card lock enforcement, pass-the-phone privacy shield,
-/// image pre-caching, and accidental back-navigation guard (`PopScope`).
+/// Play Grid Screen managing sequential player-to-card role distribution,
+/// unnumbered intuitive 3D card picking, single-card lock enforcement,
+/// pass-the-phone privacy shield, and transition to the Verification Vault.
 class PlayGridScreen extends StatefulWidget {
   const PlayGridScreen({super.key});
 
@@ -41,7 +42,7 @@ class _PlayGridScreenState extends State<PlayGridScreen> {
         return AlertDialog(
           title: const Text('إعادة خلط البطاقات؟'),
           content: const Text(
-            'سيتم إلغاء التوزيع الحالي وإعادة خلط جميع البطاقات عشوائياً بنفس إعدادات اللاعبين.',
+            'سيتم إلغاء التوزيع الحالي وإعادة خلط جميع البطاقات عشوائياً من اللاعب رقم 1 بنفس الإعدادات.',
           ),
           actions: [
             OutlinedButton(
@@ -117,6 +118,8 @@ class _PlayGridScreenState extends State<PlayGridScreen> {
                       _PlayGridHeader(
                         remainingCount: state.remainingCardsCount,
                         totalCount: state.totalCards,
+                        currentTurnPlayerNumber: state.currentTurnPlayerNumber,
+                        isAllClaimed: state.isAllCardsClaimed,
                         onReshufflePressed: () => _confirmReshuffle(context),
                         onBackPressed: () => _confirmExitRound(context),
                       ),
@@ -135,13 +138,10 @@ class _PlayGridScreenState extends State<PlayGridScreen> {
                       ),
                       Expanded(
                         child: state.isAllCardsClaimed
-                            ? _ReadyToPlayView(
-                                playerCount: state.playerCount,
-                                mafiaCount: state.totalMafiaCount,
-                                citizensCount: state.totalCitizensTeamCount,
-                                onReshuffle: cubit.reshuffle,
+                            ? VerificationVaultView(
+                                onReshuffle: () => _confirmReshuffle(context),
                                 onReturnToSetup: () =>
-                                    Navigator.of(context).pop(),
+                                    _confirmExitRound(context),
                                 onReturnHome: () => Navigator.of(context)
                                     .popUntil((Route<dynamic> r) => r.isFirst),
                               )
@@ -158,7 +158,7 @@ class _PlayGridScreenState extends State<PlayGridScreen> {
                   if (state.revealedCard != null)
                     _RevealedRoleOverlay(
                       card: state.revealedCard!,
-                      playerNumber: state.nextPlayerNumber,
+                      playerNumber: state.currentTurnPlayerNumber,
                       onClaimAndHide: () =>
                           cubit.claimAndHideCard(state.revealedCardIndex!),
                     ),
@@ -166,7 +166,7 @@ class _PlayGridScreenState extends State<PlayGridScreen> {
                   // Transitional Pass-the-Phone Privacy Shield
                   if (state.showPassPhoneOverlay)
                     _PassPhonePrivacyOverlay(
-                      nextPlayerNumber: state.nextPlayerNumber,
+                      nextPlayerNumber: state.currentTurnPlayerNumber,
                       onContinue: cubit.dismissPassPhoneOverlay,
                     ),
                 ],
@@ -183,12 +183,16 @@ class _PlayGridHeader extends StatelessWidget {
   const _PlayGridHeader({
     required this.remainingCount,
     required this.totalCount,
+    required this.currentTurnPlayerNumber,
+    required this.isAllClaimed,
     required this.onReshufflePressed,
     required this.onBackPressed,
   });
 
   final int remainingCount;
   final int totalCount;
+  final int currentTurnPlayerNumber;
+  final bool isAllClaimed;
   final VoidCallback onReshufflePressed;
   final VoidCallback onBackPressed;
 
@@ -208,24 +212,30 @@ class _PlayGridHeader extends StatelessWidget {
             tooltip: 'رجوع',
           ),
           const SizedBox(width: AppSpacing.xs),
-          // Right side (Leading in RTL): "البطاقات المتبقية: X من Y"
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'البطاقات المتبقية: $remainingCount من $totalCount',
+                  isAllClaimed
+                      ? 'خزنة التحقق من الهوية'
+                      : 'البطاقات المتبقية: $remainingCount من $totalCount',
                   style: AppTypography.headlineSmall,
                 ),
                 Text(
-                  'اسحب بطاقة واحدة واكتم هويتك عن الآخرين',
-                  style: AppTypography.labelSmall,
+                  isAllClaimed
+                      ? 'جميع البطاقات موزعة ومربوطة بأرقام اللاعبين'
+                      : 'دور اللاعب رقم $currentTurnPlayerNumber • اختر بطاقة عشوائياً',
+                  style: AppTypography.labelSmall.copyWith(
+                    color: isAllClaimed
+                        ? AppColors.mutedSlateSilver
+                        : AppColors.syndicateCrimson,
+                  ),
                 ),
               ],
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
-          // Left side (Trailing in RTL): "إعادة خلط"
           OutlinedButton.icon(
             onPressed: onReshufflePressed,
             icon: const Icon(Icons.shuffle_rounded, size: 16),
@@ -259,6 +269,7 @@ class _CardsGridContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Prominent Turn Badge: "دور اللاعب رقم {currentTurnPlayerNumber}"
         Container(
           margin: const EdgeInsets.fromLTRB(
             AppSpacing.margin,
@@ -268,22 +279,41 @@ class _CardsGridContent extends StatelessWidget {
           ),
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.md,
-            vertical: AppSpacing.sm + 2,
+            vertical: AppSpacing.sm + 4,
           ),
-          decoration: AppElevation.tier1RestingCard(radius: AppRadius.base),
+          decoration: BoxDecoration(
+            color: AppColors.charcoalCardTier2,
+            borderRadius: AppRadius.baseAll,
+            border: Border.all(
+              color: AppColors.syndicateCrimson,
+              width: AppElevation.borderWidth,
+            ),
+          ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(
                 children: [
-                  const Icon(
-                    Icons.person_pin_circle_outlined,
-                    color: AppColors.syndicateCrimson,
-                    size: 18,
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.syndicateCrimson,
+                      borderRadius: AppRadius.smAll,
+                    ),
+                    child: Text(
+                      '#${state.currentTurnPlayerNumber}',
+                      style: AppTypography.labelMedium.copyWith(
+                        color: AppColors.pureWhite,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
                   Text(
-                    'دور اللاعب رقم ${state.nextPlayerNumber}',
+                    'دور اللاعب رقم ${state.currentTurnPlayerNumber}',
                     style: AppTypography.labelLarge,
                   ),
                 ],
@@ -291,7 +321,7 @@ class _CardsGridContent extends StatelessWidget {
               Text(
                 state.hasRevealedCard
                     ? 'بطاقة قيد المعاينة...'
-                    : 'اختر أي بطاقة متاحة',
+                    : 'احفظ رقمك واسحب بطاقة',
                 style: AppTypography.labelMedium,
               ),
             ],
@@ -393,9 +423,25 @@ class _RevealedRoleOverlay extends StatelessWidget {
                           ),
                         ),
                       ),
-                      Text(
-                        'اللاعب رقم $playerNumber',
-                        style: AppTypography.labelMedium,
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.sm,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.crimsonOverlay,
+                          borderRadius: AppRadius.baseAll,
+                          border: Border.all(
+                            color: AppColors.syndicateCrimson,
+                          ),
+                        ),
+                        child: Text(
+                          'رقمك في الجولة: #$playerNumber',
+                          style: AppTypography.labelMedium.copyWith(
+                            color: AppColors.pureWhite,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -503,7 +549,27 @@ class _PassPhonePrivacyOverlay extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.lg),
+                  const SizedBox(height: AppSpacing.md),
+                  Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                        vertical: AppSpacing.xs,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.crimsonOverlay,
+                        borderRadius: AppRadius.baseAll,
+                        border: Border.all(color: AppColors.syndicateCrimson),
+                      ),
+                      child: Text(
+                        'دور اللاعب رقم $nextPlayerNumber',
+                        style: AppTypography.labelLarge.copyWith(
+                          color: AppColors.pureWhite,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
                   Text(
                     'مرر الهاتف للاعب التالي',
                     textAlign: TextAlign.center,
@@ -511,7 +577,7 @@ class _PassPhonePrivacyOverlay extends StatelessWidget {
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   Text(
-                    'مرر الهاتف للاعب رقم $nextPlayerNumber لفتح بطاقة',
+                    'مرر الهاتف للاعب رقم $nextPlayerNumber لفتح بطاقة عشوائية',
                     textAlign: TextAlign.center,
                     style: AppTypography.bodyLarge.copyWith(
                       color: AppColors.mutedSlateSilver,
@@ -532,157 +598,6 @@ class _PassPhonePrivacyOverlay extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _ReadyToPlayView extends StatelessWidget {
-  const _ReadyToPlayView({
-    required this.playerCount,
-    required this.mafiaCount,
-    required this.citizensCount,
-    required this.onReshuffle,
-    required this.onReturnToSetup,
-    required this.onReturnHome,
-  });
-
-  final int playerCount;
-  final int mafiaCount;
-  final int citizensCount;
-  final VoidCallback onReshuffle;
-  final VoidCallback onReturnToSetup;
-  final VoidCallback onReturnHome;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSpacing.margin),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 400),
-          child: Container(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            decoration: AppElevation.tier3ActiveTarget(radius: AppRadius.xl),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Center(
-                  child: Container(
-                    width: 76,
-                    height: 76,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppColors.crimsonOverlay,
-                      border: Border.all(
-                        color: AppColors.syndicateCrimson,
-                        width: 1.5,
-                      ),
-                    ),
-                    child: const Icon(
-                      Icons.nights_stay_outlined,
-                      size: 38,
-                      color: AppColors.syndicateCrimson,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                Text(
-                  'جاهزون للعب!',
-                  textAlign: TextAlign.center,
-                  style: AppTypography.displayMedium,
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  'تم توزيع جميع البطاقات السرية بنجاح. أغمضوا أعينكم لتبدأ الليلة الأولى تحت إدارة الراوي.',
-                  textAlign: TextAlign.center,
-                  style: AppTypography.bodyLarge.copyWith(
-                    color: AppColors.mutedSlateSilver,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                Container(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  decoration:
-                      AppElevation.tier1RestingCard(radius: AppRadius.base),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _SummaryStat(
-                        label: 'اللاعبون',
-                        value: '$playerCount',
-                        color: AppColors.pureWhite,
-                      ),
-                      _SummaryStat(
-                        label: 'المافيا',
-                        value: '$mafiaCount',
-                        color: AppColors.syndicateCrimson,
-                      ),
-                      _SummaryStat(
-                        label: 'المواطنون',
-                        value: '$citizensCount',
-                        color: AppColors.citizensTeam,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                SizedBox(
-                  height: 52,
-                  child: ElevatedButton.icon(
-                    onPressed: onReshuffle,
-                    icon: const Icon(Icons.refresh_rounded, size: 20),
-                    label: const Text('جولة جديدة بنفس الإعدادات'),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm + AppSpacing.xs),
-                SizedBox(
-                  height: 50,
-                  child: OutlinedButton.icon(
-                    onPressed: onReturnToSetup,
-                    icon: const Icon(Icons.tune_rounded, size: 18),
-                    label: const Text('تعديل إعدادات الأدوار'),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                TextButton(
-                  onPressed: onReturnHome,
-                  child: const Text('العودة إلى القائمة الرئيسية'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SummaryStat extends StatelessWidget {
-  const _SummaryStat({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  final String label;
-  final String value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: AppTypography.headlineLarge.copyWith(color: color),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: AppTypography.labelMedium,
-        ),
-      ],
     );
   }
 }
