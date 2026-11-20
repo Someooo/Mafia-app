@@ -1,7 +1,18 @@
 import '../../domain/entities/game_role.dart';
 
-/// Sequential phases of the automated Night-1 Audio & Visual Moderator.
-enum NightModeratorPhase {
+/// Phases of the automated Night-1 Audio & Visual Moderator, starting in
+/// a manual [standby] state so players can place the phone on the table first.
+enum NightOnePhase {
+  standby(
+    stepNumber: 0,
+    durationSeconds: 0,
+    title: 'اكتمل توزيع الأدوار بنجاح',
+    instruction:
+        'ضع الهاتف في منتصف الطاولة، وعندما يكون الجميع جاهزاً اضغط لبدء الليلة الأولى',
+    audioAssetSource: null,
+    audioAssetPath: null,
+    isMafiaActive: false,
+  ),
   everyoneSleep(
     stepNumber: 1,
     durationSeconds: 15,
@@ -37,9 +48,18 @@ enum NightModeratorPhase {
     audioAssetSource: GameAssets.cityWakeAudioSource,
     audioAssetPath: GameAssets.cityWakeAudio,
     isMafiaActive: false,
+  ),
+  completed(
+    stepNumber: 4,
+    durationSeconds: 0,
+    title: 'انتهت الليلة الأولى',
+    instruction: 'انتقل إلى خزنة التحقق من الهوية لمتابعة الجولة',
+    audioAssetSource: null,
+    audioAssetPath: null,
+    isMafiaActive: false,
   );
 
-  const NightModeratorPhase({
+  const NightOnePhase({
     required this.stepNumber,
     required this.durationSeconds,
     required this.title,
@@ -53,30 +73,48 @@ enum NightModeratorPhase {
   final int durationSeconds;
   final String title;
   final String instruction;
-  final String audioAssetSource;
-  final String audioAssetPath;
+  final String? audioAssetSource;
+  final String? audioAssetPath;
   final bool isMafiaActive;
 
-  static int get totalSteps => NightModeratorPhase.values.length;
+  bool get isStandby => this == NightOnePhase.standby;
+  bool get isCompletedPhase => this == NightOnePhase.completed;
+  bool get isActiveCountdownPhase =>
+      this != NightOnePhase.standby && this != NightOnePhase.completed;
+
+  /// The 4 timed audio phases of Night 1.
+  static const List<NightOnePhase> activePhases = <NightOnePhase>[
+    everyoneSleep,
+    mafiaWake,
+    mafiaSleep,
+    everyoneWake,
+  ];
+
+  static int get totalSteps => activePhases.length;
 }
 
-/// Immutable state for the automated Night-1 Moderator sequence.
+/// Alias preserving backwards compatibility with existing references.
+typedef NightModeratorPhase = NightOnePhase;
+
+/// Immutable state for the Night-1 Moderator sequence.
 class NightModeratorState {
   const NightModeratorState({
-    this.phase = NightModeratorPhase.everyoneSleep,
-    this.remainingSeconds = 15,
+    this.phase = NightOnePhase.standby,
+    this.remainingSeconds = 0,
     this.isRunning = false,
     this.isCompleted = false,
     this.audioPlaybackCount = 0,
   });
 
-  final NightModeratorPhase phase;
+  final NightOnePhase phase;
   final int remainingSeconds;
   final bool isRunning;
   final bool isCompleted;
 
   /// Tracks how many times phase audio was triggered (useful for UI feedback & tests).
   final int audioPlaybackCount;
+
+  bool get isStandby => phase == NightOnePhase.standby;
 
   int get totalPhaseSeconds => phase.durationSeconds;
 
@@ -88,7 +126,7 @@ class NightModeratorState {
   }
 
   NightModeratorState copyWith({
-    NightModeratorPhase? phase,
+    NightOnePhase? phase,
     int? remainingSeconds,
     bool? isRunning,
     bool? isCompleted,

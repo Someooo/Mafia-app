@@ -25,20 +25,48 @@ class FakeNightAudioPlayer implements NightAudioPlayer {
 }
 
 void main() {
-  group('NightModeratorCubit Automated Night-1 Sequence Tests', () {
+  group('NightModeratorCubit Standby & Automated Night-1 Sequence Tests', () {
     testWidgets(
-      'runs through all 4 Night-1 phases (15s -> 12s -> 5s -> 3s) with exact Arabic prompts and MP3 assets',
+      'initializes in NightOnePhase.standby with no active timer or audio playback until startNightSequence() is called',
       (WidgetTester tester) async {
         final FakeNightAudioPlayer fakeAudio = FakeNightAudioPlayer();
         final NightModeratorCubit cubit = NightModeratorCubit(
           audioPlayer: fakeAudio,
         );
 
+        expect(cubit.state.phase, NightOnePhase.standby);
+        expect(cubit.state.isStandby, isTrue);
+        expect(cubit.state.isRunning, isFalse);
+        expect(cubit.state.isCompleted, isFalse);
+        expect(cubit.state.remainingSeconds, 0);
+        expect(fakeAudio.playedAssets, isEmpty);
+
+        // Elapse 20 seconds while in standby -> still in standby, zero audio played
+        await tester.pump(const Duration(seconds: 20));
+        expect(cubit.state.phase, NightOnePhase.standby);
+        expect(cubit.state.isRunning, isFalse);
+        expect(cubit.state.remainingSeconds, 0);
+        expect(fakeAudio.playedAssets, isEmpty);
+
+        await cubit.close();
+      },
+    );
+
+    testWidgets(
+      'startNightSequence() transitions from standby through all 4 Night-1 phases (15s -> 12s -> 5s -> 3s) into completed',
+      (WidgetTester tester) async {
+        final FakeNightAudioPlayer fakeAudio = FakeNightAudioPlayer();
+        final NightModeratorCubit cubit = NightModeratorCubit(
+          audioPlayer: fakeAudio,
+        );
+
+        expect(cubit.state.phase, NightOnePhase.standby);
+
         cubit.startNightSequence();
         await tester.pump();
 
         // Phase 1: everyoneSleep (15s)
-        expect(cubit.state.phase, NightModeratorPhase.everyoneSleep);
+        expect(cubit.state.phase, NightOnePhase.everyoneSleep);
         expect(cubit.state.remainingSeconds, 15);
         expect(
           cubit.state.phase.instruction,
@@ -51,12 +79,12 @@ void main() {
 
         // Advance 14 seconds -> still in everyoneSleep with 1s left
         await tester.pump(const Duration(seconds: 14));
-        expect(cubit.state.phase, NightModeratorPhase.everyoneSleep);
+        expect(cubit.state.phase, NightOnePhase.everyoneSleep);
         expect(cubit.state.remainingSeconds, 1);
 
         // Advance 1 more second (total 15s) -> transitions to Phase 2: mafiaWake (12s)
         await tester.pump(const Duration(seconds: 1));
-        expect(cubit.state.phase, NightModeratorPhase.mafiaWake);
+        expect(cubit.state.phase, NightOnePhase.mafiaWake);
         expect(cubit.state.remainingSeconds, 12);
         expect(
           cubit.state.phase.instruction,
@@ -67,7 +95,7 @@ void main() {
 
         // Advance 12 seconds -> transitions to Phase 3: mafiaSleep (5s)
         await tester.pump(const Duration(seconds: 12));
-        expect(cubit.state.phase, NightModeratorPhase.mafiaSleep);
+        expect(cubit.state.phase, NightOnePhase.mafiaSleep);
         expect(cubit.state.remainingSeconds, 5);
         expect(
           cubit.state.phase.instruction,
@@ -77,7 +105,7 @@ void main() {
 
         // Advance 5 seconds -> transitions to Phase 4: everyoneWake (3s)
         await tester.pump(const Duration(seconds: 5));
-        expect(cubit.state.phase, NightModeratorPhase.everyoneWake);
+        expect(cubit.state.phase, NightOnePhase.everyoneWake);
         expect(cubit.state.remainingSeconds, 3);
         expect(
           cubit.state.phase.instruction,
@@ -87,6 +115,7 @@ void main() {
 
         // Advance final 3 seconds -> completes Night Moderator
         await tester.pump(const Duration(seconds: 3));
+        expect(cubit.state.phase, NightOnePhase.completed);
         expect(cubit.state.isCompleted, isTrue);
         expect(cubit.state.isRunning, isFalse);
         expect(cubit.state.remainingSeconds, 0);
@@ -104,10 +133,11 @@ void main() {
         );
 
         cubit.startNightSequence();
+        await tester.pump();
         await tester.pump(const Duration(seconds: 15)); // Now in mafiaWake (12s)
         await tester.pump(const Duration(seconds: 4)); // 8s remaining in mafiaWake
 
-        expect(cubit.state.phase, NightModeratorPhase.mafiaWake);
+        expect(cubit.state.phase, NightOnePhase.mafiaWake);
         expect(cubit.state.remainingSeconds, 8);
         final int countBefore = fakeAudio.playedAssets.length;
 
@@ -122,7 +152,7 @@ void main() {
     );
 
     testWidgets(
-      'restartNightModerator() resets from any phase back to Phase 1 (everyoneSleep - 15s)',
+      'restartNightModerator() stops audio and timer and returns cleanly to NightOnePhase.standby',
       (WidgetTester tester) async {
         final FakeNightAudioPlayer fakeAudio = FakeNightAudioPlayer();
         final NightModeratorCubit cubit = NightModeratorCubit(
@@ -130,16 +160,29 @@ void main() {
         );
 
         cubit.startNightSequence();
-        await tester.pump(const Duration(seconds: 20)); // Inside mafiaWake
-        expect(cubit.state.phase, NightModeratorPhase.mafiaWake);
-
-        cubit.restartNightModerator();
         await tester.pump();
+        await tester.pump(const Duration(seconds: 20)); // Inside mafiaWake
+        expect(cubit.state.phase, NightOnePhase.mafiaWake);
+        final int playedCountBeforeRestart = fakeAudio.playedAssets.length;
 
-        expect(cubit.state.phase, NightModeratorPhase.everyoneSleep);
-        expect(cubit.state.remainingSeconds, 15);
-        expect(cubit.state.isRunning, isTrue);
+        await cubit.restartNightModerator();
+
+        expect(cubit.state.phase, NightOnePhase.standby);
+        expect(cubit.state.isStandby, isTrue);
+        expect(cubit.state.remainingSeconds, 0);
+        expect(cubit.state.isRunning, isFalse);
         expect(cubit.state.isCompleted, isFalse);
+        // No new audio played on returning to standby
+        expect(fakeAudio.playedAssets.length, playedCountBeforeRestart);
+
+        // Elapse time in standby -> remains in standby until startNightSequence() is called again
+        await tester.pump(const Duration(seconds: 10));
+        expect(cubit.state.phase, NightOnePhase.standby);
+
+        cubit.startNightSequence();
+        await tester.pump();
+        expect(cubit.state.phase, NightOnePhase.everyoneSleep);
+        expect(cubit.state.remainingSeconds, 15);
         expect(fakeAudio.playedAssets.last, GameAssets.nightSleepAudioSource);
 
         await cubit.close();
@@ -147,7 +190,7 @@ void main() {
     );
 
     testWidgets(
-      'skipNightModerator() stops audio and timer immediately and marks isCompleted = true',
+      'skipNightModerator() stops audio and timer immediately and transitions to NightOnePhase.completed',
       (WidgetTester tester) async {
         final FakeNightAudioPlayer fakeAudio = FakeNightAudioPlayer();
         final NightModeratorCubit cubit = NightModeratorCubit(
@@ -155,10 +198,12 @@ void main() {
         );
 
         cubit.startNightSequence();
+        await tester.pump();
         await tester.pump(const Duration(seconds: 5));
 
         await cubit.skipNightModerator();
 
+        expect(cubit.state.phase, NightOnePhase.completed);
         expect(cubit.state.isCompleted, isTrue);
         expect(cubit.state.isRunning, isFalse);
         expect(cubit.state.remainingSeconds, 0);

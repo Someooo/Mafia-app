@@ -52,10 +52,13 @@ class AudioPlayersNightAudioPlayer implements NightAudioPlayer {
 }
 
 /// Controls the automated Night-1 Audio & Visual Moderator state machine:
-/// 1. `everyoneSleep` (15s) -> `night_sleep.mp3`
-/// 2. `mafiaWake` (12s) -> `mafia_wake.mp3`
-/// 3. `mafiaSleep` (5s) -> `mafia_sleep.mp3`
-/// 4. `everyoneWake` (3s) -> `city_wake.mp3`
+/// - Starts in `NightOnePhase.standby` (waiting for manual trigger, no audio/timer).
+/// - `startNightSequence()` transitions into:
+///   1. `everyoneSleep` (15s) -> `night_sleep.mp3`
+///   2. `mafiaWake` (12s) -> `mafia_wake.mp3`
+///   3. `mafiaSleep` (5s) -> `mafia_sleep.mp3`
+///   4. `everyoneWake` (3s) -> `city_wake.mp3`
+///   5. `completed` -> auto-navigates to `VerificationVaultScreen`
 class NightModeratorCubit extends Cubit<NightModeratorState> {
   NightModeratorCubit({
     NightAudioPlayer? audioPlayer,
@@ -63,10 +66,11 @@ class NightModeratorCubit extends Cubit<NightModeratorState> {
   })  : _audioPlayer = audioPlayer ?? AudioPlayersNightAudioPlayer(),
         _tickInterval = tickInterval,
         super(
-          NightModeratorState(
-            phase: NightModeratorPhase.everyoneSleep,
-            remainingSeconds:
-                NightModeratorPhase.everyoneSleep.durationSeconds,
+          const NightModeratorState(
+            phase: NightOnePhase.standby,
+            remainingSeconds: 0,
+            isRunning: false,
+            isCompleted: false,
           ),
         );
 
@@ -74,14 +78,22 @@ class NightModeratorCubit extends Cubit<NightModeratorState> {
   final Duration _tickInterval;
   Timer? _countdownTimer;
 
-  /// Starts the automated Night-1 sequence from Phase 1 (`everyoneSleep`).
+  /// Manually starts the Night-1 sequence from `standby` into `everyoneSleep` (15s).
   void startNightSequence() {
-    _enterPhase(NightModeratorPhase.everyoneSleep);
+    if (isClosed) {
+      return;
+    }
+    unawaited(HapticFeedback.mediumImpact());
+    _enterPhase(NightOnePhase.everyoneSleep);
   }
 
-  /// Replays the audio prompt for the currently active [NightModeratorPhase].
+  /// Replays the audio prompt for the currently active [NightOnePhase].
   Future<void> replayCurrentPhaseAudio() async {
     if (isClosed) {
+      return;
+    }
+    final String? audioSource = state.phase.audioAssetSource;
+    if (audioSource == null) {
       return;
     }
     unawaited(HapticFeedback.lightImpact());
@@ -91,19 +103,33 @@ class NightModeratorCubit extends Cubit<NightModeratorState> {
       ),
     );
     await _audioPlayer.stop();
-    await _audioPlayer.playAsset(state.phase.audioAssetSource);
+    await _audioPlayer.playAsset(audioSource);
   }
 
-  /// Restarts the entire Night-1 sequence from Phase 1 (`everyoneSleep` - 15s).
-  void restartNightModerator() {
+  /// Stops any active audio/timer and returns cleanly to [NightOnePhase.standby]
+  /// so players can start the night sequence again when ready.
+  Future<void> restartNightModerator() async {
     if (isClosed) {
       return;
     }
     unawaited(HapticFeedback.mediumImpact());
-    _enterPhase(NightModeratorPhase.everyoneSleep);
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
+    await _audioPlayer.stop();
+    if (isClosed) {
+      return;
+    }
+    emit(
+      state.copyWith(
+        phase: NightOnePhase.standby,
+        remainingSeconds: 0,
+        isRunning: false,
+        isCompleted: false,
+      ),
+    );
   }
 
-  /// Immediately stops audio and timers and completes the Night-1 Moderator.
+  /// Immediately stops audio and timers and transitions to [NightOnePhase.completed].
   Future<void> skipNightModerator() async {
     if (isClosed) {
       return;
@@ -117,6 +143,7 @@ class NightModeratorCubit extends Cubit<NightModeratorState> {
     }
     emit(
       state.copyWith(
+        phase: NightOnePhase.completed,
         isRunning: false,
         isCompleted: true,
         remainingSeconds: 0,
@@ -124,7 +151,7 @@ class NightModeratorCubit extends Cubit<NightModeratorState> {
     );
   }
 
-  void _enterPhase(NightModeratorPhase nextPhase) {
+  void _enterPhase(NightOnePhase nextPhase) {
     if (isClosed) {
       return;
     }
@@ -146,7 +173,10 @@ class NightModeratorCubit extends Cubit<NightModeratorState> {
       ),
     );
 
-    unawaited(_playPhaseCue(nextPhase.audioAssetSource));
+    final String? audioSource = nextPhase.audioAssetSource;
+    if (audioSource != null) {
+      unawaited(_playPhaseCue(audioSource));
+    }
 
     _countdownTimer = Timer.periodic(_tickInterval, (_) {
       _onTick();
@@ -168,12 +198,12 @@ class NightModeratorCubit extends Cubit<NightModeratorState> {
       return;
     }
 
-    // Current phase finished -> advance to next phase or complete sequence.
-    final List<NightModeratorPhase> allPhases = NightModeratorPhase.values;
-    final int currentIndex = allPhases.indexOf(state.phase);
+    // Current phase finished -> advance to next active phase or complete sequence.
+    const List<NightOnePhase> activePhases = NightOnePhase.activePhases;
+    final int currentIndex = activePhases.indexOf(state.phase);
 
-    if (currentIndex >= 0 && currentIndex < allPhases.length - 1) {
-      _enterPhase(allPhases[currentIndex + 1]);
+    if (currentIndex >= 0 && currentIndex < activePhases.length - 1) {
+      _enterPhase(activePhases[currentIndex + 1]);
     } else {
       _countdownTimer?.cancel();
       _countdownTimer = null;
@@ -181,6 +211,7 @@ class NightModeratorCubit extends Cubit<NightModeratorState> {
       unawaited(HapticFeedback.heavyImpact());
       emit(
         state.copyWith(
+          phase: NightOnePhase.completed,
           remainingSeconds: 0,
           isRunning: false,
           isCompleted: true,

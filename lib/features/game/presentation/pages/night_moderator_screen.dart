@@ -9,10 +9,9 @@ import '../cubit/night_moderator_state.dart';
 
 /// Automated Night-1 Audio & Visual Moderator Screen ("الليدر الآلي — الليلة الأولى").
 ///
-/// Runs automatically after the final card is claimed on the Play Grid,
-/// guiding players through the 4 Night-1 phases with MP3 voiceovers,
-/// pulsing crimson aura during `mafiaWake`, and instant controls for
-/// "إعادة الصوت", "إعادة الليلة من البداية", and "تخطي".
+/// Enters a manual `NightOnePhase.standby` state after the final card is claimed
+/// so players can place the phone in the center of the table and press
+/// "بدء الليلة الأولى" when everyone is ready.
 class NightModeratorScreen extends StatelessWidget {
   const NightModeratorScreen({
     super.key,
@@ -20,7 +19,7 @@ class NightModeratorScreen extends StatelessWidget {
     this.audioPlayer,
   });
 
-  /// Callback invoked when the 4-phase Night Moderator finishes or is skipped.
+  /// Callback invoked when the Night Moderator finishes or is skipped.
   /// If null, pops the current route with `Navigator.of(context).maybePop()`.
   final VoidCallback? onCompleted;
 
@@ -30,8 +29,7 @@ class NightModeratorScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider<NightModeratorCubit>(
-      create: (_) => NightModeratorCubit(audioPlayer: audioPlayer)
-        ..startNightSequence(),
+      create: (_) => NightModeratorCubit(audioPlayer: audioPlayer),
       child: _NightModeratorView(onCompleted: onCompleted),
     );
   }
@@ -87,17 +85,26 @@ class _NightModeratorViewState extends State<_NightModeratorView>
   Widget build(BuildContext context) {
     return BlocConsumer<NightModeratorCubit, NightModeratorState>(
       listenWhen: (NightModeratorState previous, NightModeratorState current) =>
-          !previous.isCompleted && current.isCompleted,
+          !previous.isCompleted &&
+          (current.isCompleted || current.phase == NightOnePhase.completed),
       listener: (BuildContext context, NightModeratorState state) {
-        if (state.isCompleted) {
+        if (state.isCompleted || state.phase == NightOnePhase.completed) {
           _handleCompleted();
         }
       },
       builder: (BuildContext context, NightModeratorState state) {
         final NightModeratorCubit cubit = context.read<NightModeratorCubit>();
-        final NightModeratorPhase phase = state.phase;
-        final bool isMafiaWake = phase == NightModeratorPhase.mafiaWake;
-        final bool isMorning = phase == NightModeratorPhase.everyoneWake;
+        final NightOnePhase phase = state.phase;
+
+        if (phase == NightOnePhase.standby) {
+          return _StandbyReadyContent(
+            onStartNight: cubit.startNightSequence,
+            onSkipToVault: cubit.skipNightModerator,
+          );
+        }
+
+        final bool isMafiaWake = phase == NightOnePhase.mafiaWake;
+        final bool isMorning = phase == NightOnePhase.everyoneWake;
         final Color activeAccent = isMafiaWake
             ? AppColors.syndicateCrimson
             : (isMorning ? AppColors.citizensTeam : AppColors.mutedSlateSilver);
@@ -212,7 +219,7 @@ class _NightModeratorViewState extends State<_NightModeratorView>
                                     ),
                                   ),
                                   child: Text(
-                                    'مرحلة ${phase.stepNumber} من ${NightModeratorPhase.totalSteps}',
+                                    'مرحلة ${phase.stepNumber} من ${NightOnePhase.totalSteps}',
                                     style: AppTypography.labelMedium.copyWith(
                                       color: activeAccent,
                                       fontWeight: FontWeight.w700,
@@ -352,8 +359,8 @@ class _NightModeratorViewState extends State<_NightModeratorView>
                             // 4-Step Progress Dots
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
-                              children: NightModeratorPhase.values.map(
-                                (NightModeratorPhase item) {
+                              children: NightOnePhase.activePhases.map(
+                                (NightOnePhase item) {
                                   final bool isCurrent = item == phase;
                                   final bool isPassed =
                                       item.stepNumber < phase.stepNumber;
@@ -379,9 +386,9 @@ class _NightModeratorViewState extends State<_NightModeratorView>
 
                             const SizedBox(height: AppSpacing.xl),
 
-                            // Moderator Action Controls:
+                            // Active Moderator Action Controls:
                             // 1. "إعادة الصوت" (replayCurrentPhaseAudio)
-                            // 2. "إعادة الليلة من البداية" (restartNightModerator)
+                            // 2. "إعادة من البداية" (restartNightModerator)
                             // 3. "تخطي" (skipNightModerator)
                             Row(
                               children: [
@@ -408,9 +415,7 @@ class _NightModeratorViewState extends State<_NightModeratorView>
                                         Icons.restart_alt_rounded,
                                         size: 18,
                                       ),
-                                      label: const Text(
-                                        'إعادة الليلة من البداية',
-                                      ),
+                                      label: const Text('إعادة من البداية'),
                                     ),
                                   ),
                                 ),
@@ -442,16 +447,119 @@ class _NightModeratorViewState extends State<_NightModeratorView>
     );
   }
 
-  IconData _iconForPhase(NightModeratorPhase phase) {
+  IconData _iconForPhase(NightOnePhase phase) {
     switch (phase) {
-      case NightModeratorPhase.everyoneSleep:
+      case NightOnePhase.standby:
+        return Icons.mic_none_rounded;
+      case NightOnePhase.everyoneSleep:
         return Icons.nights_stay_outlined;
-      case NightModeratorPhase.mafiaWake:
+      case NightOnePhase.mafiaWake:
         return Icons.visibility_outlined;
-      case NightModeratorPhase.mafiaSleep:
+      case NightOnePhase.mafiaSleep:
         return Icons.visibility_off_outlined;
-      case NightModeratorPhase.everyoneWake:
+      case NightOnePhase.everyoneWake:
+      case NightOnePhase.completed:
         return Icons.wb_sunny_outlined;
     }
+  }
+}
+
+/// Calm, focused Standby / Ready View rendered when `phase == NightOnePhase.standby`.
+/// Allows players to set the phone in the center of the table before starting the voiceover.
+class _StandbyReadyContent extends StatelessWidget {
+  const _StandbyReadyContent({
+    required this.onStartNight,
+    required this.onSkipToVault,
+  });
+
+  final VoidCallback onStartNight;
+  final VoidCallback onSkipToVault;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.margin,
+          vertical: AppSpacing.lg,
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Container(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            decoration: AppElevation.tier1RestingCard(radius: AppRadius.xl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Crimson Microphone / Sound-Wave Icon Badge
+                Center(
+                  child: Container(
+                    width: 84,
+                    height: 84,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppColors.crimsonOverlay,
+                      border: Border.all(
+                        color: AppColors.syndicateCrimson,
+                        width: 1.5,
+                      ),
+                      boxShadow: const [AppElevation.activeCardGlow],
+                    ),
+                    child: const Icon(
+                      Icons.graphic_eq_rounded,
+                      size: 40,
+                      color: AppColors.syndicateCrimson,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.lg),
+
+                // Standby Title
+                Text(
+                  'اكتمل توزيع الأدوار بنجاح',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.headlineMedium.copyWith(
+                    color: AppColors.pureWhite,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+
+                // Standby Subtitle
+                Text(
+                  'ضع الهاتف في منتصف الطاولة، وعندما يكون الجميع جاهزاً اضغط لبدء الليلة الأولى',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.bodyLarge.copyWith(
+                    color: AppColors.mutedSlateSilver,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xl),
+
+                // Primary Large Crimson CTA Button: "بدء الليلة الأولى"
+                SizedBox(
+                  height: 54,
+                  child: ElevatedButton.icon(
+                    onPressed: onStartNight,
+                    icon: const Icon(Icons.play_arrow_rounded, size: 24),
+                    label: const Text('بدء الليلة الأولى'),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+
+                // Secondary Subtle Button: "تخطي والانتقال لخزنة التحقق"
+                SizedBox(
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    onPressed: onSkipToVault,
+                    icon: const Icon(Icons.skip_next_rounded, size: 20),
+                    label: const Text('تخطي والانتقال لخزنة التحقق'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
