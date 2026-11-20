@@ -7,8 +7,11 @@ import 'core/theme/app_theme.dart';
 import 'features/game/presentation/cubit/game_cubit.dart';
 import 'features/game/presentation/pages/home_screen.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations(const [
+    DeviceOrientation.portraitUp,
+  ]);
   SystemChrome.setSystemUIOverlayStyle(AppTheme.systemUiOverlayStyle);
   runApp(const BarberSyncApp());
 }

@@ -17,10 +17,12 @@ class GameCubit extends Cubit<GameState> {
         super(const GameState());
 
   final GameSettingsStorage _settingsStorage;
+  Future<void> _pendingSave = Future<void>.value();
 
   /// Restores last saved `playerCount` and `enabledOptionalRoleIds` from local storage.
   Future<void> loadSavedSettings() async {
     try {
+      await _pendingSave;
       final saved = await _settingsStorage.loadSettings();
       if (isClosed) {
         return;
@@ -36,13 +38,16 @@ class GameCubit extends Cubit<GameState> {
     }
   }
 
-  void _persistCurrentSettings(int playerCount, Set<String> optionalRoleIds) {
-    unawaited(
-      _settingsStorage.saveSettings(
+  void _persistCurrentSettings() {
+    final int playerCount = state.playerCount;
+    final Set<String> optionalRoleIds =
+        Set<String>.from(state.enabledOptionalRoleIds);
+    _pendingSave = _pendingSave.then((_) {
+      return _settingsStorage.saveSettings(
         playerCount: playerCount,
         enabledOptionalRoleIds: optionalRoleIds,
-      ),
-    );
+      );
+    }).catchError((_) {});
   }
 
   /// Increases player count up to [RoleShuffler.maxPlayers] (18).
@@ -53,7 +58,7 @@ class GameCubit extends Cubit<GameState> {
     unawaited(HapticFeedback.lightImpact());
     final int nextCount = state.playerCount + 1;
     emit(state.copyWith(playerCount: nextCount));
-    _persistCurrentSettings(nextCount, state.enabledOptionalRoleIds);
+    _persistCurrentSettings();
   }
 
   /// Decreases player count down to [RoleShuffler.minPlayers] (6).
@@ -79,7 +84,7 @@ class GameCubit extends Cubit<GameState> {
         enabledOptionalRoleIds: updatedOptional,
       ),
     );
-    _persistCurrentSettings(nextCount, updatedOptional);
+    _persistCurrentSettings();
   }
 
   /// Toggles an optional role on or off.
@@ -90,7 +95,7 @@ class GameCubit extends Cubit<GameState> {
       unawaited(HapticFeedback.lightImpact());
       updated.remove(roleId);
       emit(state.copyWith(enabledOptionalRoleIds: updated));
-      _persistCurrentSettings(state.playerCount, updated);
+      _persistCurrentSettings();
       return;
     }
 
@@ -101,7 +106,7 @@ class GameCubit extends Cubit<GameState> {
     unawaited(HapticFeedback.lightImpact());
     updated.add(roleId);
     emit(state.copyWith(enabledOptionalRoleIds: updated));
-    _persistCurrentSettings(state.playerCount, updated);
+    _persistCurrentSettings();
   }
 
   /// Builds and cryptographically shuffles the card pool for a new round.

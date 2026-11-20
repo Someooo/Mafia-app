@@ -20,31 +20,19 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.barbersync.app"
+        applicationId = "com.sami.mafia_app"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
-    // Uncomment to enable product flavors (run with: flutter run --flavor dev / --flavor prod)
-    // flavorDimensions = ["environment"]
-    // productFlavors {
-    //     dev {
-    //         dimension "environment"
-    //         applicationIdSuffix ".dev"
-    //         versionNameSuffix "-dev"
-    //         resValue "string", "app_name", "BarberSync Dev"
-    //     }
-    //     prod {
-    //         dimension "environment"
-    //         resValue "string", "app_name", "BarberSync"
-    //     }
-    // }
-
     buildTypes {
         release {
             signingConfig = signingConfigs.debug
+            minifyEnabled = true
+            shrinkResources = true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
     }
 }
