@@ -10,7 +10,8 @@ import '../../domain/services/role_shuffler.dart';
 import 'game_state.dart';
 
 /// Manages Lobby Setup configuration (with SharedPreferences persistence),
-/// Sequential Player-to-Card Dealing, and the Post-Deal Verification Vault.
+/// Sequential Player-to-Card Dealing, the Post-Deal Verification Vault,
+/// and Instant Rematch round resets.
 class GameCubit extends Cubit<GameState> {
   GameCubit({
     GameSettingsStorage? settingsStorage,
@@ -238,9 +239,11 @@ class GameCubit extends Cubit<GameState> {
     return role;
   }
 
-  /// Safely restarts the round, re-shuffles all cards, and resets player bindings
-  /// and verified eliminations while retaining setup configuration.
-  void reshuffle() {
+  /// Instant Rematch: Re-shuffles a fresh deck using [RoleShuffler] with the
+  /// exact same [playerCount] and [enabledOptionalRoleIds], clears [playerRoles],
+  /// resets [currentTurnPlayerNumber] to `1`, clears [revealedEliminatedPlayers],
+  /// resets [revealedCardIndex] to `null`, and triggers [HapticFeedback.heavyImpact].
+  void startInstantRematch() {
     unawaited(HapticFeedback.heavyImpact());
     final List<PlayableCard> deck = RoleShuffler.buildShuffledDeck(
       playerCount: state.playerCount,
@@ -257,6 +260,11 @@ class GameCubit extends Cubit<GameState> {
         revealedEliminatedPlayers: const <int>{},
       ),
     );
+  }
+
+  /// Safely restarts the round and re-shuffles all cards while retaining setup configuration.
+  void reshuffle() {
+    startInstantRematch();
   }
 
   @override

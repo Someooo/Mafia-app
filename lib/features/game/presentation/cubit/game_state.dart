@@ -3,7 +3,7 @@ import '../../domain/entities/playable_card.dart';
 import '../../domain/services/role_shuffler.dart';
 
 /// Unified state for lobby setup configuration, sequential player-to-card dealing,
-/// and post-deal player role verification vault.
+/// post-deal player role verification vault, live faction counters, and win detection.
 class GameState {
   const GameState({
     this.playerCount = RoleShuffler.minPlayers,
@@ -52,11 +52,19 @@ class GameState {
     return remainingCitizenCount > 0;
   }
 
+  // --- Live Faction Counters ---
+
+  /// Total Mafia cards in `playerRoles` (or configured setup count before cards are claimed).
   int get totalMafiaCount {
+    if (playerRoles.isNotEmpty) {
+      return playerRoles.values
+          .where((GameRole role) => role.team == RoleTeam.mafia)
+          .length;
+    }
     int count = GameRole.mandatoryRoles
-        .where((role) => role.team == RoleTeam.mafia)
+        .where((GameRole role) => role.team == RoleTeam.mafia)
         .length;
-    for (final role in GameRole.optionalRoles) {
+    for (final GameRole role in GameRole.optionalRoles) {
       if (enabledOptionalRoleIds.contains(role.id) &&
           role.team == RoleTeam.mafia) {
         count++;
@@ -65,7 +73,62 @@ class GameState {
     return count;
   }
 
-  int get totalCitizensTeamCount => playerCount - totalMafiaCount;
+  /// Total Citizens cards in `playerRoles` (or configured setup count before cards are claimed).
+  int get totalCitizensCount {
+    if (playerRoles.isNotEmpty) {
+      return playerRoles.values
+          .where((GameRole role) => role.team == RoleTeam.citizens)
+          .length;
+    }
+    return playerCount - totalMafiaCount;
+  }
+
+  /// Alias used by SetupScreen for expected citizen faction count.
+  int get totalCitizensTeamCount => totalCitizensCount;
+
+  /// Count of player numbers in [revealedEliminatedPlayers] whose role is [RoleTeam.mafia].
+  int get eliminatedMafiaCount {
+    int count = 0;
+    for (final int playerNum in revealedEliminatedPlayers) {
+      final GameRole? role = playerRoles[playerNum];
+      if (role != null && role.team == RoleTeam.mafia) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /// Count of player numbers in [revealedEliminatedPlayers] whose role is [RoleTeam.citizens].
+  int get eliminatedCitizensCount {
+    int count = 0;
+    for (final int playerNum in revealedEliminatedPlayers) {
+      final GameRole? role = playerRoles[playerNum];
+      if (role != null && role.team == RoleTeam.citizens) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /// Remaining surviving Mafia players.
+  int get aliveMafiaCount => totalMafiaCount - eliminatedMafiaCount;
+
+  /// Remaining surviving Citizen players.
+  int get aliveCitizensCount => totalCitizensCount - eliminatedCitizensCount;
+
+  // --- Automatic Win-Condition Detection ---
+
+  /// Returns `true` when all Mafia members have been eliminated.
+  bool get isCitizensVictory =>
+      revealedEliminatedPlayers.isNotEmpty && aliveMafiaCount == 0;
+
+  /// Returns `true` when surviving Mafia reaches parity with or outnumbers surviving Citizens.
+  bool get isMafiaVictory =>
+      revealedEliminatedPlayers.isNotEmpty &&
+      aliveMafiaCount > 0 &&
+      aliveMafiaCount >= aliveCitizensCount;
+
+  // --- Card Grid Progress ---
 
   int get totalCards => cards.length;
 

@@ -139,7 +139,7 @@ class _PlayGridScreenState extends State<PlayGridScreen> {
                       Expanded(
                         child: state.isAllCardsClaimed
                             ? VerificationVaultView(
-                                onReshuffle: () => _confirmReshuffle(context),
+                                onInstantRematch: cubit.startInstantRematch,
                                 onReturnToSetup: () =>
                                     _confirmExitRound(context),
                                 onReturnHome: () => Navigator.of(context)

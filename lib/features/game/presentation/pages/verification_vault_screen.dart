@@ -11,18 +11,20 @@ import '../cubit/game_state.dart';
 
 /// Post-Deal Player Verification Vault ("خزنة التحقق من الهوية").
 ///
-/// Allows the narrator or table to verify an eliminated player's secret role
-/// by their sequential player number (`1..N`) without exposing the rest of the table,
-/// logs verified eliminations, and provides an end-of-round full roster reveal.
+/// Includes:
+/// 1. Live Faction Balance Bar ("المافيا الأحياء" vs "الصالحون الأحياء")
+/// 2. Automatic Win-Condition Banner (Mafia Victory / Citizens Victory) with Instant Rematch CTA
+/// 3. Suspense Search by Player Number (1..N) with safeguard confirmation
+/// 4. Eliminated Players Log & End-of-Game Full Reveal sheet with Instant Rematch CTA
 class VerificationVaultView extends StatefulWidget {
   const VerificationVaultView({
     super.key,
-    required this.onReshuffle,
+    required this.onInstantRematch,
     required this.onReturnToSetup,
     required this.onReturnHome,
   });
 
-  final VoidCallback onReshuffle;
+  final VoidCallback onInstantRematch;
   final VoidCallback onReturnToSetup;
   final VoidCallback onReturnHome;
 
@@ -53,8 +55,7 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
         playerNumber < 1 ||
         playerNumber > state.playerCount) {
       setState(() {
-        _errorText =
-            'يرجى إدخال رقم لاعب صحيح بين 1 و ${state.playerCount}';
+        _errorText = 'يرجى إدخال رقم لاعب صحيح بين 1 و ${state.playerCount}';
       });
       return;
     }
@@ -272,7 +273,7 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
       backgroundColor: AppColors.charcoalCardTier2,
       barrierColor: AppColors.backdropScrim,
       builder: (BuildContext sheetContext) {
-        final double maxHeight = MediaQuery.sizeOf(sheetContext).height * 0.85;
+        final double maxHeight = MediaQuery.sizeOf(sheetContext).height * 0.86;
         final List<int> sortedPlayers = state.playerRoles.keys.toList()..sort();
 
         return ConstrainedBox(
@@ -352,7 +353,6 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
                         color: AppColors.charcoalCardTier1,
                         child: Row(
                           children: [
-                            // 36px circular avatar framed with faction/state ring
                             Container(
                               width: AppSpacing.avatarSize,
                               height: AppSpacing.avatarSize,
@@ -399,7 +399,7 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
                                   left: AppSpacing.sm,
                                 ),
                                 child: Text(
-                                  'مكشوف',
+                                  'مطرود',
                                   style: AppTypography.labelSmall.copyWith(
                                     color: AppColors.mutedSlateSilver,
                                   ),
@@ -431,6 +431,19 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
                     },
                   ),
                 ),
+                const SizedBox(height: AppSpacing.md),
+                // Instant Rematch CTA inside the End-of-Game Full Reveal sheet
+                SizedBox(
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(sheetContext).pop();
+                      widget.onInstantRematch();
+                    },
+                    icon: const Icon(Icons.replay_rounded, size: 20),
+                    label: const Text('جولة جديدة (إعادة خلط فورية)'),
+                  ),
+                ),
               ],
             ),
           ),
@@ -454,7 +467,35 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Top Status Banner: Ready to Play + Active Vault
+                  // 1. Live Faction Balance Bar (Tier 1 split status card)
+                  _LiveFactionBalanceBar(
+                    aliveMafiaCount: state.aliveMafiaCount,
+                    aliveCitizensCount: state.aliveCitizensCount,
+                  ),
+
+                  const SizedBox(height: AppSpacing.md),
+
+                  // 2. Dramatic Automatic Win-Condition Banner
+                  if (state.isMafiaVictory) ...[
+                    _WinConditionBanner(
+                      isMafiaVictory: true,
+                      title: 'سيطرت المافيا على المدينة! انتهت الجولة',
+                      subtitle: 'تساوى عدد المافيا الأحياء مع الصالحين',
+                      onInstantRematch: widget.onInstantRematch,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                  ] else if (state.isCitizensVictory) ...[
+                    _WinConditionBanner(
+                      isMafiaVictory: false,
+                      title: 'انتصر الصالحون! تم القضاء على جميع أفراد المافيا',
+                      subtitle:
+                          'نجح المواطنون في كشف وطرد جميع عناصر المافيا من المدينة',
+                      onInstantRematch: widget.onInstantRematch,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                  ],
+
+                  // 3. Suspense Search Box by Player Number
                   Container(
                     padding: const EdgeInsets.all(AppSpacing.lg),
                     decoration:
@@ -487,12 +528,12 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'جاهزون للعب! • خزنة التحقق من الهوية',
+                                    'خزنة التحقق من الهوية',
                                     style: AppTypography.headlineSmall,
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    'تم ربط كل لاعب برقمه التسلسلي (1 - ${state.playerCount}). ابحث برقم اللاعب المطرود لكشف بطاقته الحقيقية ومنع الكذب.',
+                                    'ابحث برقم اللاعب المطرود (1 - ${state.playerCount}) لكشف بطاقته الحقيقية وتحديث ميزان القوى تلقائياً.',
                                     style: AppTypography.bodySmall,
                                   ),
                                 ],
@@ -501,7 +542,6 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
                           ],
                         ),
                         const SizedBox(height: AppSpacing.md),
-                        // Suspense Numeric Search Field
                         TextField(
                           controller: _playerNumberController,
                           keyboardType: TextInputType.number,
@@ -542,7 +582,7 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
 
                   const SizedBox(height: AppSpacing.lg),
 
-                  // Verified Eliminated Players Log
+                  // 4. Verified Eliminated Players Log
                   Container(
                     padding: const EdgeInsets.all(AppSpacing.md),
                     decoration:
@@ -646,7 +686,7 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
 
                   const SizedBox(height: AppSpacing.lg),
 
-                  // End-of-Game Full Reveal & Round Management Controls
+                  // 5. End-of-Game Full Reveal & Instant Rematch Controls
                   SizedBox(
                     height: 50,
                     child: OutlinedButton.icon(
@@ -658,11 +698,11 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
                   ),
                   const SizedBox(height: AppSpacing.sm + AppSpacing.xs),
                   SizedBox(
-                    height: 50,
-                    child: OutlinedButton.icon(
-                      onPressed: widget.onReshuffle,
-                      icon: const Icon(Icons.refresh_rounded, size: 20),
-                      label: const Text('جولة جديدة بنفس الإعدادات'),
+                    height: 52,
+                    child: ElevatedButton.icon(
+                      onPressed: widget.onInstantRematch,
+                      icon: const Icon(Icons.replay_rounded, size: 20),
+                      label: const Text('جولة جديدة (إعادة خلط فورية)'),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.sm),
@@ -687,6 +727,193 @@ class _VerificationVaultViewState extends State<VerificationVaultView> {
           ),
         );
       },
+    );
+  }
+}
+
+/// Tier 1 (`#161616` with `1px` `#262626` border) split status card
+/// displaying real-time surviving counts for Mafia and Citizens.
+class _LiveFactionBalanceBar extends StatelessWidget {
+  const _LiveFactionBalanceBar({
+    required this.aliveMafiaCount,
+    required this.aliveCitizensCount,
+  });
+
+  final int aliveMafiaCount;
+  final int aliveCitizensCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm + AppSpacing.xs,
+      ),
+      decoration: AppElevation.tier1RestingCard(radius: AppRadius.lg),
+      child: IntrinsicHeight(
+        child: Row(
+          children: [
+            // Right side in RTL (Crimson accent #D90429): "المافيا الأحياء: {aliveMafiaCount}"
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: AppColors.syndicateCrimson,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Flexible(
+                    child: Text(
+                      'المافيا الأحياء: $aliveMafiaCount',
+                      style: AppTypography.labelLarge.copyWith(
+                        color: AppColors.syndicateCrimson,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const VerticalDivider(
+              color: AppColors.borderResting,
+              thickness: AppElevation.borderWidth,
+              width: AppSpacing.lg,
+            ),
+            // Left side in RTL (Crisp White #FFFFFF): "الصالحون الأحياء: {aliveCitizensCount}"
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: AppColors.pureWhite,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Flexible(
+                    child: Text(
+                      'الصالحون الأحياء: $aliveCitizensCount',
+                      style: AppTypography.labelLarge.copyWith(
+                        color: AppColors.pureWhite,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Dramatic Win-Condition Alert Banner with Instant Rematch CTA.
+class _WinConditionBanner extends StatelessWidget {
+  const _WinConditionBanner({
+    required this.isMafiaVictory,
+    required this.title,
+    required this.subtitle,
+    required this.onInstantRematch,
+  });
+
+  final bool isMafiaVictory;
+  final String title;
+  final String subtitle;
+  final VoidCallback onInstantRematch;
+
+  static const Color _emeraldAccent = Color(0xFF2EC4B6);
+
+  @override
+  Widget build(BuildContext context) {
+    final Color borderColor =
+        isMafiaVictory ? AppColors.syndicateCrimson : _emeraldAccent;
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.charcoalCardTier2,
+        borderRadius: AppRadius.xlAll,
+        border: Border.all(
+          color: borderColor,
+          width: AppElevation.borderWidth,
+        ),
+        boxShadow: isMafiaVictory
+            ? const [AppElevation.activeCardGlow]
+            : [
+                BoxShadow(
+                  color: _emeraldAccent.withValues(alpha: 0.22),
+                  blurRadius: 16.0,
+                ),
+              ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: borderColor.withValues(alpha: 0.16),
+                  border: Border.all(
+                    color: borderColor,
+                    width: 1.5,
+                  ),
+                ),
+                child: Icon(
+                  isMafiaVictory
+                      ? Icons.local_fire_department_rounded
+                      : Icons.emoji_events_outlined,
+                  color: borderColor,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: AppTypography.headlineSmall.copyWith(
+                        color: AppColors.pureWhite,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: AppTypography.bodySmall.copyWith(
+                        color: isMafiaVictory
+                            ? AppColors.primary
+                            : AppColors.pureWhite.withValues(alpha: 0.85),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          SizedBox(
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: onInstantRematch,
+              icon: const Icon(Icons.replay_rounded, size: 20),
+              label: const Text('جولة جديدة (إعادة خلط فورية)'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

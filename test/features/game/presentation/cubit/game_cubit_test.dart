@@ -11,7 +11,9 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
-  group('GameCubit State Management, Sequential Player Binding & Verification Vault Tests', () {
+  group(
+      'GameCubit State Management, Sequential Player Binding, Live Faction Balance & Instant Rematch Tests',
+      () {
     test(
       'enforces player count bounds (6..18) and prevents remainingCitizenCount from dropping below 0',
       () {
@@ -156,7 +158,92 @@ void main() {
     );
 
     test(
-      'reshuffle() resets all cards, playerRoles, currentTurnPlayerNumber, and revealedEliminatedPlayers while preserving setup config',
+      'accurately tracks aliveMafiaCount, aliveCitizensCount, and triggers isMafiaVictory when aliveMafiaCount >= aliveCitizensCount',
+      () {
+        final GameCubit cubit = GameCubit();
+        // Default 6 players: 2 mandatory Mafia + 4 Citizens
+        cubit.dealCards();
+
+        for (int i = 0; i < cubit.state.cards.length; i++) {
+          cubit.revealCard(i);
+          cubit.claimAndHideCard(i);
+          if (i < cubit.state.cards.length - 1) {
+            cubit.dismissPassPhoneOverlay();
+          }
+        }
+
+        expect(cubit.state.totalMafiaCount, 2);
+        expect(cubit.state.totalCitizensCount, 4);
+        expect(cubit.state.aliveMafiaCount, 2);
+        expect(cubit.state.aliveCitizensCount, 4);
+        expect(cubit.state.isMafiaVictory, isFalse);
+        expect(cubit.state.isCitizensVictory, isFalse);
+
+        // Find all Citizen player numbers
+        final List<int> citizenPlayers = cubit.state.playerRoles.entries
+            .where((e) => e.value.team == RoleTeam.citizens)
+            .map((e) => e.key)
+            .toList();
+
+        // Eliminate 1st Citizen -> 2 Mafia vs 3 Citizens (game continues)
+        cubit.verifyPlayerRole(citizenPlayers[0]);
+        expect(cubit.state.eliminatedCitizensCount, 1);
+        expect(cubit.state.aliveCitizensCount, 3);
+        expect(cubit.state.aliveMafiaCount, 2);
+        expect(cubit.state.isMafiaVictory, isFalse);
+
+        // Eliminate 2nd Citizen -> 2 Mafia vs 2 Citizens -> MAFIA VICTORY!
+        cubit.verifyPlayerRole(citizenPlayers[1]);
+        expect(cubit.state.eliminatedCitizensCount, 2);
+        expect(cubit.state.aliveCitizensCount, 2);
+        expect(cubit.state.aliveMafiaCount, 2);
+        expect(cubit.state.isMafiaVictory, isTrue);
+        expect(cubit.state.isCitizensVictory, isFalse);
+
+        cubit.close();
+      },
+    );
+
+    test(
+      'triggers isCitizensVictory when all Mafia members are eliminated (aliveMafiaCount == 0)',
+      () {
+        final GameCubit cubit = GameCubit();
+        cubit.dealCards();
+
+        for (int i = 0; i < cubit.state.cards.length; i++) {
+          cubit.revealCard(i);
+          cubit.claimAndHideCard(i);
+          if (i < cubit.state.cards.length - 1) {
+            cubit.dismissPassPhoneOverlay();
+          }
+        }
+
+        final List<int> mafiaPlayers = cubit.state.playerRoles.entries
+            .where((e) => e.value.team == RoleTeam.mafia)
+            .map((e) => e.key)
+            .toList();
+        expect(mafiaPlayers.length, 2);
+
+        // Eliminate 1st Mafia -> 1 Mafia alive (game continues)
+        cubit.verifyPlayerRole(mafiaPlayers[0]);
+        expect(cubit.state.eliminatedMafiaCount, 1);
+        expect(cubit.state.aliveMafiaCount, 1);
+        expect(cubit.state.isCitizensVictory, isFalse);
+        expect(cubit.state.isMafiaVictory, isFalse);
+
+        // Eliminate 2nd Mafia -> 0 Mafia alive -> CITIZENS VICTORY!
+        cubit.verifyPlayerRole(mafiaPlayers[1]);
+        expect(cubit.state.eliminatedMafiaCount, 2);
+        expect(cubit.state.aliveMafiaCount, 0);
+        expect(cubit.state.isCitizensVictory, isTrue);
+        expect(cubit.state.isMafiaVictory, isFalse);
+
+        cubit.close();
+      },
+    );
+
+    test(
+      'startInstantRematch() preserves playerCount and enabledOptionalRoleIds, generates a newly shuffled deck, and resets currentTurnPlayerNumber to 1',
       () {
         final GameCubit cubit = GameCubit();
         cubit.incrementPlayerCount(); // 7
@@ -165,18 +252,22 @@ void main() {
         cubit.toggleOptionalRole(GameRole.regularMafia.id);
 
         cubit.dealCards();
-        cubit.revealCard(3);
-        cubit.claimAndHideCard(3);
-        cubit.dismissPassPhoneOverlay();
+        for (int i = 0; i < cubit.state.cards.length; i++) {
+          cubit.revealCard(i);
+          cubit.claimAndHideCard(i);
+          if (i < cubit.state.cards.length - 1) {
+            cubit.dismissPassPhoneOverlay();
+          }
+        }
         cubit.verifyPlayerRole(1);
+        cubit.verifyPlayerRole(2);
 
-        expect(cubit.state.claimedCardsCount, 1);
-        expect(cubit.state.currentTurnPlayerNumber, 2);
-        expect(cubit.state.playerRoles.isNotEmpty, isTrue);
-        expect(cubit.state.revealedEliminatedPlayers.isNotEmpty, isTrue);
+        expect(cubit.state.isAllCardsClaimed, isTrue);
+        expect(cubit.state.playerRoles.length, 8);
+        expect(cubit.state.revealedEliminatedPlayers.length, 2);
 
-        // Trigger reshuffle
-        cubit.reshuffle();
+        // Trigger Instant Rematch
+        cubit.startInstantRematch();
 
         expect(cubit.state.playerCount, 8);
         expect(
@@ -195,6 +286,8 @@ void main() {
         expect(cubit.state.revealedEliminatedPlayers, isEmpty);
         expect(cubit.state.revealedCardIndex, isNull);
         expect(cubit.state.showPassPhoneOverlay, isFalse);
+        expect(cubit.state.isMafiaVictory, isFalse);
+        expect(cubit.state.isCitizensVictory, isFalse);
 
         cubit.close();
       },
