@@ -19,7 +19,7 @@ class BarberSyncApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider<GameCubit>(
-      create: (_) => GameCubit(),
+      create: (_) => GameCubit()..loadSavedSettings(),
       child: MaterialApp(
         title: 'مافيا',
         debugShowCheckedModeBanner: false,

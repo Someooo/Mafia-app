@@ -1,3 +1,5 @@
+import 'package:flutter/widgets.dart';
+
 /// Faction alignment in the Obsidian Syndicate universe.
 enum RoleTeam {
   mafia,
@@ -46,6 +48,32 @@ abstract final class GameAssets {
   static const String avengerVillager = 'assets/images/ولد الصالحين.jpg';
   static const String sniper = 'assets/images/قناص الصالحين.jpg';
   static const String regularCitizen = 'assets/images/مواطن صالح.jpg';
+
+  /// All card and branding image paths to pre-cache into Flutter's ImageCache.
+  static const List<String> allCardAndBrandAssets = [
+    logo,
+    cardBack,
+    mafiaLeader,
+    silencerMafia,
+    regularMafia,
+    citizensLeader,
+    medic,
+    avengerVillager,
+    sniper,
+    regularCitizen,
+  ];
+
+  /// Pre-caches all role card images and `card_back` to eliminate white flickers
+  /// or frame drops during the 3D flip animation on mid-range devices.
+  static Future<void> precacheAll(BuildContext context) async {
+    for (final String assetPath in allCardAndBrandAssets) {
+      await precacheImage(
+        AssetImage(assetPath),
+        context,
+        onError: (_, __) {},
+      );
+    }
+  }
 }
 
 /// Immutable domain model representing a Mafia role card.

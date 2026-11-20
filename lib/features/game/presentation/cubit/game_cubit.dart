@@ -1,19 +1,59 @@
+import 'dart:async';
+
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../data/game_settings_storage.dart';
 import '../../domain/entities/playable_card.dart';
 import '../../domain/services/role_shuffler.dart';
 import 'game_state.dart';
 
-/// Manages both Lobby Setup configuration and Play Grid card reveal lifecycle.
+/// Manages both Lobby Setup configuration (with SharedPreferences persistence)
+/// and Play Grid card reveal lifecycle (with tactile HapticFeedback).
 class GameCubit extends Cubit<GameState> {
-  GameCubit() : super(const GameState());
+  GameCubit({
+    GameSettingsStorage? settingsStorage,
+  })  : _settingsStorage = settingsStorage ?? const GameSettingsStorage(),
+        super(const GameState());
+
+  final GameSettingsStorage _settingsStorage;
+
+  /// Restores last saved `playerCount` and `enabledOptionalRoleIds` from local storage.
+  Future<void> loadSavedSettings() async {
+    try {
+      final saved = await _settingsStorage.loadSettings();
+      if (isClosed) {
+        return;
+      }
+      emit(
+        state.copyWith(
+          playerCount: saved.playerCount,
+          enabledOptionalRoleIds: saved.enabledOptionalRoleIds,
+        ),
+      );
+    } catch (_) {
+      // Fallback gracefully to default GameState if storage is unavailable.
+    }
+  }
+
+  void _persistCurrentSettings(int playerCount, Set<String> optionalRoleIds) {
+    unawaited(
+      _settingsStorage.saveSettings(
+        playerCount: playerCount,
+        enabledOptionalRoleIds: optionalRoleIds,
+      ),
+    );
+  }
 
   /// Increases player count up to [RoleShuffler.maxPlayers] (18).
   void incrementPlayerCount() {
     if (!state.canIncrementPlayers) {
       return;
     }
-    emit(state.copyWith(playerCount: state.playerCount + 1));
+    unawaited(HapticFeedback.lightImpact());
+    final int nextCount = state.playerCount + 1;
+    emit(state.copyWith(playerCount: nextCount));
+    _persistCurrentSettings(nextCount, state.enabledOptionalRoleIds);
   }
 
   /// Decreases player count down to [RoleShuffler.minPlayers] (6).
@@ -22,9 +62,11 @@ class GameCubit extends Cubit<GameState> {
     if (!state.canDecrementPlayers) {
       return;
     }
+    unawaited(HapticFeedback.lightImpact());
     final int nextCount = state.playerCount - 1;
     final int maxOptionalAllowed = nextCount - state.mandatoryCount;
-    Set<String> updatedOptional = Set<String>.from(state.enabledOptionalRoleIds);
+    final Set<String> updatedOptional =
+        Set<String>.from(state.enabledOptionalRoleIds);
 
     while (updatedOptional.length > maxOptionalAllowed &&
         updatedOptional.isNotEmpty) {
@@ -37,6 +79,7 @@ class GameCubit extends Cubit<GameState> {
         enabledOptionalRoleIds: updatedOptional,
       ),
     );
+    _persistCurrentSettings(nextCount, updatedOptional);
   }
 
   /// Toggles an optional role on or off.
@@ -44,8 +87,10 @@ class GameCubit extends Cubit<GameState> {
   void toggleOptionalRole(String roleId) {
     final Set<String> updated = Set<String>.from(state.enabledOptionalRoleIds);
     if (updated.contains(roleId)) {
+      unawaited(HapticFeedback.lightImpact());
       updated.remove(roleId);
       emit(state.copyWith(enabledOptionalRoleIds: updated));
+      _persistCurrentSettings(state.playerCount, updated);
       return;
     }
 
@@ -53,12 +98,15 @@ class GameCubit extends Cubit<GameState> {
       return;
     }
 
+    unawaited(HapticFeedback.lightImpact());
     updated.add(roleId);
     emit(state.copyWith(enabledOptionalRoleIds: updated));
+    _persistCurrentSettings(state.playerCount, updated);
   }
 
   /// Builds and cryptographically shuffles the card pool for a new round.
   void dealCards() {
+    unawaited(HapticFeedback.mediumImpact());
     final List<PlayableCard> deck = RoleShuffler.buildShuffledDeck(
       playerCount: state.playerCount,
       enabledOptionalRoleIds: state.enabledOptionalRoleIds,
@@ -88,6 +136,8 @@ class GameCubit extends Cubit<GameState> {
       return;
     }
 
+    unawaited(HapticFeedback.mediumImpact());
+
     final List<PlayableCard> updatedCards =
         List<PlayableCard>.from(state.cards);
     updatedCards[index] = target.copyWith(status: CardRevealStatus.revealed);
@@ -111,6 +161,8 @@ class GameCubit extends Cubit<GameState> {
       return;
     }
 
+    unawaited(HapticFeedback.lightImpact());
+
     final List<PlayableCard> updatedCards =
         List<PlayableCard>.from(state.cards);
     updatedCards[index] =
@@ -133,11 +185,24 @@ class GameCubit extends Cubit<GameState> {
     if (!state.showPassPhoneOverlay) {
       return;
     }
+    unawaited(HapticFeedback.lightImpact());
     emit(state.copyWith(showPassPhoneOverlay: false));
   }
 
   /// Safely restarts the round and re-shuffles all cards while retaining setup configuration.
   void reshuffle() {
-    dealCards();
+    unawaited(HapticFeedback.heavyImpact());
+    final List<PlayableCard> deck = RoleShuffler.buildShuffledDeck(
+      playerCount: state.playerCount,
+      enabledOptionalRoleIds: state.enabledOptionalRoleIds,
+    );
+
+    emit(
+      state.copyWith(
+        cards: deck,
+        revealedCardIndex: null,
+        showPassPhoneOverlay: false,
+      ),
+    );
   }
 }

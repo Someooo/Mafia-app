@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
@@ -7,9 +9,26 @@ import '../../domain/entities/game_role.dart';
 import '../widgets/role_guide_sheet.dart';
 import 'setup_screen.dart';
 
-/// Obsidian Syndicate Home Screen featuring high-stakes noir atmosphere.
-class HomeScreen extends StatelessWidget {
+/// Obsidian Syndicate Home Screen featuring high-stakes noir atmosphere
+/// and automatic role image pre-caching.
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  bool _hasPrecached = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_hasPrecached) {
+      _hasPrecached = true;
+      unawaited(GameAssets.precacheAll(context));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

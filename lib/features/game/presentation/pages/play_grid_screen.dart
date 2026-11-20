@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -11,9 +13,26 @@ import '../cubit/game_state.dart';
 import '../widgets/flip_card_widget.dart';
 
 /// Play Grid Screen managing secret role card distribution, 3D flips,
-/// single-card lock enforcement, pass-the-phone privacy shield, and round ready state.
-class PlayGridScreen extends StatelessWidget {
+/// single-card lock enforcement, pass-the-phone privacy shield,
+/// image pre-caching, and accidental back-navigation guard (`PopScope`).
+class PlayGridScreen extends StatefulWidget {
   const PlayGridScreen({super.key});
+
+  @override
+  State<PlayGridScreen> createState() => _PlayGridScreenState();
+}
+
+class _PlayGridScreenState extends State<PlayGridScreen> {
+  bool _hasPrecached = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_hasPrecached) {
+      _hasPrecached = true;
+      unawaited(GameAssets.precacheAll(context));
+    }
+  }
 
   Future<void> _confirmReshuffle(BuildContext context) async {
     final bool? confirmed = await showDialog<bool>(
@@ -43,78 +62,115 @@ class PlayGridScreen extends StatelessWidget {
     }
   }
 
+  Future<void> _confirmExitRound(BuildContext context) async {
+    final bool? shouldExit = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('إنهاء الجولة؟'),
+          content: const Text(
+            'هل تريد إنهاء الجولة الحالية والعودة للإعدادات؟',
+          ),
+          actions: [
+            OutlinedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('متابعة اللعب'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('إنهاء الجولة'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldExit == true && context.mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<GameCubit, GameState>(
       builder: (BuildContext context, GameState state) {
         final GameCubit cubit = context.read<GameCubit>();
 
-        return Scaffold(
-          backgroundColor: AppColors.obsidianCanvas,
-          body: SafeArea(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Top Tactical Header Bar
-                    _PlayGridHeader(
-                      remainingCount: state.remainingCardsCount,
-                      totalCount: state.totalCards,
-                      onReshufflePressed: () => _confirmReshuffle(context),
-                      onBackPressed: () => Navigator.of(context).pop(),
-                    ),
-                    // Top 2px countdown/progress razor gauge
-                    LinearProgressIndicator(
-                      value: state.totalCards == 0
-                          ? 0
-                          : state.remainingCardsCount / state.totalCards,
-                      minHeight: AppSpacing.countdownGaugeHeight,
-                      backgroundColor: AppColors.charcoalCardTier2,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        state.remainingCardsCount <= 2
-                            ? AppColors.syndicateCrimson
-                            : AppColors.mutedSlateSilver,
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (bool didPop, Object? result) {
+            if (didPop) {
+              return;
+            }
+            unawaited(_confirmExitRound(context));
+          },
+          child: Scaffold(
+            backgroundColor: AppColors.obsidianCanvas,
+            body: SafeArea(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Top Tactical Header Bar
+                      _PlayGridHeader(
+                        remainingCount: state.remainingCardsCount,
+                        totalCount: state.totalCards,
+                        onReshufflePressed: () => _confirmReshuffle(context),
+                        onBackPressed: () => _confirmExitRound(context),
                       ),
-                    ),
-                    Expanded(
-                      child: state.isAllCardsClaimed
-                          ? _ReadyToPlayView(
-                              playerCount: state.playerCount,
-                              mafiaCount: state.totalMafiaCount,
-                              citizensCount: state.totalCitizensTeamCount,
-                              onReshuffle: cubit.reshuffle,
-                              onReturnToSetup: () =>
-                                  Navigator.of(context).pop(),
-                              onReturnHome: () => Navigator.of(context)
-                                  .popUntil((Route<dynamic> r) => r.isFirst),
-                            )
-                          : _CardsGridContent(
-                              state: state,
-                              onCardTapHidden: cubit.revealCard,
-                              onCardTapRevealed: cubit.claimAndHideCard,
-                            ),
-                    ),
-                  ],
-                ),
-
-                // Active Revealed Role Dossier Modal Overlay
-                if (state.revealedCard != null)
-                  _RevealedRoleOverlay(
-                    card: state.revealedCard!,
-                    playerNumber: state.nextPlayerNumber,
-                    onClaimAndHide: () =>
-                        cubit.claimAndHideCard(state.revealedCardIndex!),
+                      // Top 2px countdown/progress razor gauge
+                      LinearProgressIndicator(
+                        value: state.totalCards == 0
+                            ? 0
+                            : state.remainingCardsCount / state.totalCards,
+                        minHeight: AppSpacing.countdownGaugeHeight,
+                        backgroundColor: AppColors.charcoalCardTier2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          state.remainingCardsCount <= 2
+                              ? AppColors.syndicateCrimson
+                              : AppColors.mutedSlateSilver,
+                        ),
+                      ),
+                      Expanded(
+                        child: state.isAllCardsClaimed
+                            ? _ReadyToPlayView(
+                                playerCount: state.playerCount,
+                                mafiaCount: state.totalMafiaCount,
+                                citizensCount: state.totalCitizensTeamCount,
+                                onReshuffle: cubit.reshuffle,
+                                onReturnToSetup: () =>
+                                    Navigator.of(context).pop(),
+                                onReturnHome: () => Navigator.of(context)
+                                    .popUntil((Route<dynamic> r) => r.isFirst),
+                              )
+                            : _CardsGridContent(
+                                state: state,
+                                onCardTapHidden: cubit.revealCard,
+                                onCardTapRevealed: cubit.claimAndHideCard,
+                              ),
+                      ),
+                    ],
                   ),
 
-                // Transitional Pass-the-Phone Privacy Shield
-                if (state.showPassPhoneOverlay)
-                  _PassPhonePrivacyOverlay(
-                    nextPlayerNumber: state.nextPlayerNumber,
-                    onContinue: cubit.dismissPassPhoneOverlay,
-                  ),
-              ],
+                  // Active Revealed Role Dossier Modal Overlay
+                  if (state.revealedCard != null)
+                    _RevealedRoleOverlay(
+                      card: state.revealedCard!,
+                      playerNumber: state.nextPlayerNumber,
+                      onClaimAndHide: () =>
+                          cubit.claimAndHideCard(state.revealedCardIndex!),
+                    ),
+
+                  // Transitional Pass-the-Phone Privacy Shield
+                  if (state.showPassPhoneOverlay)
+                    _PassPhonePrivacyOverlay(
+                      nextPlayerNumber: state.nextPlayerNumber,
+                      onContinue: cubit.dismissPassPhoneOverlay,
+                    ),
+                ],
+              ),
             ),
           ),
         );
@@ -316,7 +372,6 @@ class _RevealedRoleOverlay extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Top row corner indices
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -345,7 +400,6 @@ class _RevealedRoleOverlay extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  // Role Dossier Artwork
                   AspectRatio(
                     aspectRatio: 0.85,
                     child: Container(

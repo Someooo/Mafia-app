@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -12,8 +14,24 @@ import '../widgets/role_guide_sheet.dart';
 import 'play_grid_screen.dart';
 
 /// Game Setup Screen configuring total players (6-18), mandatory roles, and optional roles.
-class SetupScreen extends StatelessWidget {
+class SetupScreen extends StatefulWidget {
   const SetupScreen({super.key});
+
+  @override
+  State<SetupScreen> createState() => _SetupScreenState();
+}
+
+class _SetupScreenState extends State<SetupScreen> {
+  bool _hasPrecached = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_hasPrecached) {
+      _hasPrecached = true;
+      unawaited(GameAssets.precacheAll(context));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
