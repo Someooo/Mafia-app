@@ -362,8 +362,9 @@ MafiaApp/
 │       └── src/main/AndroidManifest.xml  # Arabic app label ("مافيا") & portrait orientation lock
 ├── assets/
 │   ├── audio/                            # Clean ASCII Arabic voiceovers (night_sleep, mafia_wake, mafia_sleep, city_wake)
-│   └── images/                           # 2:3 Role card artworks, card back, and splash logos
-│       └── appScreen/                    # Documentation screenshots for README (not bundled in release binary)
+│   ├── images/                           # 2:3 Role card artworks, card back, and splash logos
+│   │   └── appScreen/                    # Documentation screenshots for README (not bundled in release binary)
+│   └── video/                            # Promotional walkthrough video (MafiaApp.mp4, not bundled in release binary)
 ├── lib/
 │   ├── main.dart                         # Entry point, FlutterNativeSplash, portrait lock, RTL builder & BlocProvider
 │   ├── core/
@@ -444,3 +445,12 @@ flutter build appbundle --release
 ## 7. Privacy Policy | الخصوصية
 
 This application operates **100% offline**, collects zero personal data, and requires no internet permissions or user accounts. See [PRIVACY_POLICY.md](PRIVACY_POLICY.md) for full details.
+
+---
+
+## 🎬 العرض الترويجي للتطبيق (App Promo & Walkthrough)
+
+شاهد العرض الترويجي الكامل لتطبيق **مافيا — موزع الأدوار الذكي (`Obsidian Syndicate`)**، والذي يستعرض تجربة إعداد الجولة، وتوزيع البطاقات السرية ثلاثية الأبعاد، والليدر الصوتي الآلي لليلة الأولى، وخزنة التحقق من الهوية أثناء اللعب:
+
+https://github.com/Someooo/Mafia-app/raw/main/assets/video/MafiaApp.mp4
+
